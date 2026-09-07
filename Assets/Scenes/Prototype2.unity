@@ -341,8 +341,8 @@ MonoBehaviour:
   birdPrefab: {fileID: 8353667966452935195, guid: c628b86253832c1428e8b1342438c08b, type: 3}
   truck: {fileID: 0}
   hornClip: {fileID: 0}
-  spawnIntervalMin: 8
-  spawnIntervalMax: 16
+  spawnIntervalMin: 6.59
+  spawnIntervalMax: 14.2
   circleBeforeStun: 3
   stunDuration: 1
   spawnDistanceMin: 28

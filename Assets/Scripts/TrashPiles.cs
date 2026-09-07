@@ -29,8 +29,12 @@ public class TrashPiles : MonoBehaviour
     [SerializeField, Tooltip("How far the trash floor extends past the real floor so corners stay covered.")] float coverPadding = 70f;
     [SerializeField] float crawlSpeedMin = 1.5f;
     [SerializeField] float crawlSpeedMax = 1.7f;
-    [SerializeField] float despawnDelayMin = 1f;
-    [SerializeField] float despawnDelayMax = 2f;
+    [SerializeField, Tooltip("How long a landed block can be pushed before the pile swallows it.")] float pushWindowMin = 2.75f;
+    [SerializeField, Tooltip("Longest time a landed block waits for a push.")] float pushWindowMax = 4.25f;
+    [SerializeField, Tooltip("How far the wall nudges out when the truck first hits the block.")] float contactNudge = 0.85f;
+    [SerializeField, Tooltip("How much farther the wall recedes after the block is shoved into it and disappears.")] float finishPush = 3.6f;
+    [SerializeField, Tooltip("How quickly a receding edge eases into place. Higher is snappier.")] float edgeRecedeLerp = 6f;
+    [SerializeField] float consumeDuration = 0.7f;
     [SerializeField] float respawnDelayMin = 0.5f;
     [SerializeField] float respawnDelayMax = 1.25f;
     [SerializeField] float fallDuration = 0.45f;
@@ -40,6 +44,8 @@ public class TrashPiles : MonoBehaviour
         Crawling,
         Falling,
         Placed,
+        Shoving,
+        Consuming,
         Hidden
     }
 
@@ -81,6 +87,7 @@ public class TrashPiles : MonoBehaviour
     float[] openingHeadStart;
     float[] despawnLeft;
     float[] hiddenLeft;
+    float[] recedeLeft;
     Transform[] edgeWalls;
     readonly List<Vector3> verts = new List<Vector3>(2048);
     readonly List<Vector2> uvs = new List<Vector2>(2048);
@@ -110,8 +117,12 @@ public class TrashPiles : MonoBehaviour
         closestHeadStart = Mathf.Clamp01(closestHeadStart);
         crawlSpeedMin = Mathf.Max(0.1f, crawlSpeedMin);
         crawlSpeedMax = Mathf.Max(crawlSpeedMin, crawlSpeedMax);
-        despawnDelayMin = Mathf.Max(0.1f, despawnDelayMin);
-        despawnDelayMax = Mathf.Max(despawnDelayMin, despawnDelayMax);
+        pushWindowMin = Mathf.Max(0.35f, pushWindowMin);
+        pushWindowMax = Mathf.Max(pushWindowMin, pushWindowMax);
+        contactNudge = Mathf.Max(0.05f, contactNudge);
+        finishPush = Mathf.Max(0.1f, finishPush);
+        edgeRecedeLerp = Mathf.Max(0.5f, edgeRecedeLerp);
+        consumeDuration = Mathf.Max(0.05f, consumeDuration);
         respawnDelayMin = Mathf.Max(0f, respawnDelayMin);
         respawnDelayMax = Mathf.Max(respawnDelayMin, respawnDelayMax);
         fallDuration = Mathf.Max(0.05f, fallDuration);
@@ -131,6 +142,7 @@ public class TrashPiles : MonoBehaviour
 
         ClearPushedFlags();
         PushContactingBlocks();
+        ApplyRecede();
         ApplyIdleOrCreep();
         UpdateBlockLife();
         if (dirty)
@@ -143,7 +155,13 @@ public class TrashPiles : MonoBehaviour
 
     public bool IsBlockPushable(int index)
     {
-        return blockLife != null && index >= 0 && index < blockLife.Length && blockLife[index] == BlockLife.Placed;
+        if (blockLife == null || index < 0 || index >= blockLife.Length)
+        {
+            return false;
+        }
+
+        BlockLife life = blockLife[index];
+        return life == BlockLife.Placed || life == BlockLife.Shoving;
     }
 
     public void SetBlockContact(int index, bool overlapping)
@@ -161,8 +179,6 @@ public class TrashPiles : MonoBehaviour
         {
             overlapCount[index] = Mathf.Max(0, overlapCount[index] - 1);
         }
-
-        SetCornerWallsIgnored(index, overlapCount[index] > 0);
     }
 
     public void PushBlock(int index, Rigidbody carBody)
@@ -173,11 +189,6 @@ public class TrashPiles : MonoBehaviour
         }
 
         if (index < 0 || index >= corners.Length || !IsBlockPushable(index))
-        {
-            return;
-        }
-
-        if (pushedThisStep[index])
         {
             return;
         }
@@ -197,15 +208,18 @@ public class TrashPiles : MonoBehaviour
             return;
         }
 
-        pushedThisStep[index] = true;
-        if (despawnLeft[index] < 0f)
+        if (blockLife[index] == BlockLife.Placed)
         {
-            despawnLeft[index] = Random.Range(despawnDelayMin, despawnDelayMax);
+            BeginShove(index);
         }
 
-        MoveEdge(index, drive * Time.fixedDeltaTime);
-        dirty = true;
-        ApplyShape();
+        if (pushedThisStep[index])
+        {
+            return;
+        }
+
+        pushedThisStep[index] = true;
+        DriveBlockIntoPile(index, drive);
     }
 
     void PushContactingBlocks()
@@ -411,15 +425,18 @@ public class TrashPiles : MonoBehaviour
                     StepFall(i, dt);
                     break;
                 case BlockLife.Placed:
-                    if (despawnLeft[i] >= 0f)
+                    despawnLeft[i] -= dt;
+                    if (despawnLeft[i] <= 0f)
                     {
-                        despawnLeft[i] -= dt;
-                        if (despawnLeft[i] <= 0f)
-                        {
-                            BeginHidden(i);
-                        }
+                        BeginConsume(i);
                     }
 
+                    break;
+                case BlockLife.Shoving:
+                    StepShove(i, dt);
+                    break;
+                case BlockLife.Consuming:
+                    StepConsume(i, dt);
                     break;
                 case BlockLife.Hidden:
                     hiddenLeft[i] -= dt;
@@ -492,11 +509,70 @@ public class TrashPiles : MonoBehaviour
     void BeginPlaced(int index)
     {
         blockLife[index] = BlockLife.Placed;
-        despawnLeft[index] = -1f;
+        despawnLeft[index] = Random.Range(pushWindowMin, pushWindowMax);
         SetBlockInteractable(index, true);
         SetBlockVisible(index, true);
         Vector3 pos = BlockPosition(index);
         ApplyBlockTransform(index, pos, FaceEdge(index));
+    }
+
+    void BeginShove(int index)
+    {
+        SetBlockInteractable(index, true);
+        SetBlockVisible(index, true);
+        crawlPos[index] = cornerBlocks[index] != null ? cornerBlocks[index].position : BlockPosition(index);
+        crawlPos[index].y = cubeY;
+        blockLife[index] = BlockLife.Shoving;
+        despawnLeft[index] = -1f;
+        SetCornerWallsIgnored(index, true);
+        QueueRecede(index, contactNudge);
+    }
+
+    void DriveBlockIntoPile(int index, Vector3 drive)
+    {
+        Vector3 outward = EdgeOutward(index);
+        float along = Vector3.Dot(drive, outward);
+        if (along <= 0f)
+        {
+            return;
+        }
+
+        crawlPos[index] += outward * (along * Time.fixedDeltaTime);
+        Vector3 mid = EdgeMid(index);
+        float into = Vector3.Dot(crawlPos[index] - mid, outward);
+        into = Mathf.Max(into, -BlockInset());
+        Vector3 pos = mid + outward * into;
+        pos.y = cubeY;
+        crawlPos[index] = pos;
+        ApplyBlockTransform(index, pos, FaceEdge(index));
+        CheckSwallow(index);
+    }
+
+    void CheckSwallow(int index)
+    {
+        if (blockLife[index] != BlockLife.Shoving)
+        {
+            return;
+        }
+
+        Vector3 outward = EdgeOutward(index);
+        float into = Vector3.Dot(crawlPos[index] - EdgeMid(index), outward);
+        if (into >= cubeExtent * 0.85f)
+        {
+            QueueRecede(index, finishPush);
+            BeginHidden(index);
+        }
+    }
+
+    void BeginConsume(int index)
+    {
+        ClearBlockContact(index);
+        SetBlockInteractable(index, false);
+        SetBlockVisible(index, true);
+        blockLife[index] = BlockLife.Consuming;
+        fallFrom[index] = cornerBlocks[index] != null ? cornerBlocks[index].position : BlockPosition(index);
+        fallElapsed[index] = 0f;
+        despawnLeft[index] = -1f;
     }
 
     void BeginHidden(int index)
@@ -524,12 +600,7 @@ public class TrashPiles : MonoBehaviour
 
         Vector3 target = CrawlLip(index);
         crawlPos[index] = Vector3.MoveTowards(crawlPos[index], target, crawlSpeed[index] * dt);
-        Vector3 travel = target - crawlPos[index];
-        travel.y = 0f;
-        Quaternion rotation = travel.sqrMagnitude > 0.0001f
-            ? FaceAlong(travel)
-            : FaceAlong(-EdgeOutward(index));
-        ApplyBlockTransform(index, crawlPos[index], rotation);
+        ApplyBlockTransform(index, crawlPos[index], FaceAlong(-EdgeOutward(index)));
         if ((crawlPos[index] - target).sqrMagnitude <= 0.0004f)
         {
             crawlPos[index] = target;
@@ -547,12 +618,106 @@ public class TrashPiles : MonoBehaviour
         pos.x = Mathf.Lerp(from.x, to.x, t);
         pos.z = Mathf.Lerp(from.z, to.z, t);
         pos.y = Mathf.Lerp(from.y, to.y, t * t);
-        Quaternion rotation = Quaternion.Slerp(FaceAlong(-EdgeOutward(index)), FaceEdge(index), t);
-        ApplyBlockTransform(index, pos, rotation);
+        ApplyBlockTransform(index, pos, FaceAlong(-EdgeOutward(index)));
         if (t >= 1f)
         {
             BeginPlaced(index);
         }
+    }
+
+    void StepShove(int index, float dt)
+    {
+        ApplyBlockTransform(index, crawlPos[index], FaceEdge(index));
+        CheckSwallow(index);
+    }
+
+    void StepConsume(int index, float dt)
+    {
+        fallElapsed[index] += dt;
+        float t = Mathf.Clamp01(fallElapsed[index] / consumeDuration);
+        Vector3 from = fallFrom[index];
+        Vector3 to = IntoPilePoint(index, cubeExtent * 2.1f, PileTopY());
+        to.y = Mathf.Lerp(PileTopY(), Mathf.Max(0.08f, pileHeight * 0.35f), t);
+        Vector3 pos;
+        pos.x = Mathf.Lerp(from.x, to.x, t);
+        pos.z = Mathf.Lerp(from.z, to.z, t);
+        pos.y = Mathf.Lerp(from.y, to.y, t * t);
+        ApplyBlockTransform(index, pos, FaceAlong(-EdgeOutward(index)));
+        if (t >= 1f)
+        {
+            BeginHidden(index);
+        }
+    }
+
+    Vector3 IntoPilePoint(int index, float extraOut, float y)
+    {
+        Vector3 pos = EdgeMid(index) + EdgeOutward(index) * extraOut;
+        pos.y = y;
+        return pos;
+    }
+
+    void QueueRecede(int index, float distance)
+    {
+        if (recedeLeft == null || index < 0 || index >= recedeLeft.Length || distance <= 0.0001f)
+        {
+            return;
+        }
+
+        recedeLeft[index] += distance;
+    }
+
+    void ApplyRecede()
+    {
+        if (recedeLeft == null)
+        {
+            return;
+        }
+
+        float dt = Time.fixedDeltaTime;
+        float lerp = 1f - Mathf.Exp(-edgeRecedeLerp * dt);
+        for (int i = 0; i < count; i++)
+        {
+            if (recedeLeft[i] <= 0.0001f)
+            {
+                recedeLeft[i] = 0f;
+                continue;
+            }
+
+            float step = recedeLeft[i] * lerp;
+            if (recedeLeft[i] < 0.03f || step >= recedeLeft[i] - 0.001f)
+            {
+                step = recedeLeft[i];
+            }
+
+            recedeLeft[i] -= step;
+            SlideEdgeOut(i, step);
+            dirty = true;
+        }
+    }
+
+    void SlideEdgeOut(int index, float distance)
+    {
+        if (distance <= 0.0001f)
+        {
+            return;
+        }
+
+        Vector3 delta = EdgeOutward(index) * distance;
+        SlideVertex(index, delta);
+        SlideVertex(Wrap(index + 1), delta);
+    }
+
+    void SlideVertex(int index, Vector3 delta)
+    {
+        if (delta.sqrMagnitude < 0.0000001f)
+        {
+            return;
+        }
+
+        corners[index] += delta;
+        ClampCorner(index);
+        vertexMovedThisStep[index] = true;
+        idleSeconds[index] = 0f;
     }
 
     void ApplyBlockVisuals()
@@ -566,8 +731,11 @@ public class TrashPiles : MonoBehaviour
         {
             if (blockLife[i] == BlockLife.Placed)
             {
-                Vector3 pos = BlockPosition(i);
-                ApplyBlockTransform(i, pos, FaceEdge(i));
+                ApplyBlockTransform(i, BlockPosition(i), FaceEdge(i));
+            }
+            else if (blockLife[i] == BlockLife.Shoving)
+            {
+                ApplyBlockTransform(i, crawlPos[i], FaceEdge(i));
             }
         }
     }
@@ -601,7 +769,13 @@ public class TrashPiles : MonoBehaviour
 
     bool WallHasTrash(int index)
     {
-        return blockLife != null && index >= 0 && index < blockLife.Length && blockLife[index] == BlockLife.Placed;
+        if (blockLife == null || index < 0 || index >= blockLife.Length)
+        {
+            return false;
+        }
+
+        BlockLife life = blockLife[index];
+        return life == BlockLife.Placed || life == BlockLife.Shoving;
     }
 
     float WallCreepSpeed(int index)
@@ -618,6 +792,22 @@ public class TrashPiles : MonoBehaviour
     float VertexCreepSpeed(int index)
     {
         return Mathf.Max(WallCreepSpeed(Wrap(index - 1)), WallCreepSpeed(index));
+    }
+
+    bool VertexHeld(int index)
+    {
+        int prev = Wrap(index - 1);
+        if (recedeLeft != null && (recedeLeft[index] > 0.0001f || recedeLeft[prev] > 0.0001f))
+        {
+            return true;
+        }
+
+        if (blockLife == null)
+        {
+            return false;
+        }
+
+        return blockLife[index] == BlockLife.Shoving || blockLife[prev] == BlockLife.Shoving;
     }
 
     Vector3 CrawlLip(int index)
@@ -786,6 +976,7 @@ public class TrashPiles : MonoBehaviour
         openingHeadStart = new float[count];
         despawnLeft = new float[count];
         hiddenLeft = new float[count];
+        recedeLeft = new float[count];
         carColliders = GetComponentsInChildren<Collider>();
         PlaceStartingCorners();
 
@@ -1003,7 +1194,7 @@ public class TrashPiles : MonoBehaviour
 
         for (int i = 0; i < count; i++)
         {
-            if (vertexMovedThisStep[i])
+            if (vertexMovedThisStep[i] || VertexHeld(i))
             {
                 idleSeconds[i] = 0f;
                 continue;
@@ -1319,7 +1510,7 @@ public class TrashPiles : MonoBehaviour
         Vector3 borderCenter = new Vector3(border.position.x, 0f, border.position.z);
         for (int i = 0; i < count; i++)
         {
-            if (!IsBlockPushable(i))
+            if (blockLife == null || blockLife[i] != BlockLife.Placed)
             {
                 continue;
             }
