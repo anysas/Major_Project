@@ -16,10 +16,13 @@ public class TrashCube : MonoBehaviour
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
         rb.constraints = RigidbodyConstraints.None;
 
-        Collider cubeCollider = GetComponent<Collider>();
-        if (cubeCollider != null)
+        Collider[] colliders = GetComponentsInChildren<Collider>();
+        for (int i = 0; i < colliders.Length; i++)
         {
-            cubeCollider.isTrigger = true;
+            if (colliders[i] != null)
+            {
+                colliders[i].isTrigger = true;
+            }
         }
     }
 
@@ -36,6 +39,11 @@ public class TrashCube : MonoBehaviour
 
     void OnTriggerStay(Collider other)
     {
+        if (piles == null)
+        {
+            return;
+        }
+
         Rigidbody otherBody = CarBody(other);
         if (otherBody == null)
         {

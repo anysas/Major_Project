@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -9,9 +10,19 @@ public class CarController : MonoBehaviour
     [SerializeField] float acceleration = 70f;
     [SerializeField] float deceleration = 80f;
     [SerializeField] float turnSpeed = 240f;
+    [SerializeField] float wheelRadius = 0.75f;
+    [SerializeField] float armRestX = -100f;
+    [SerializeField] float armRaisedX = -145f;
+    [SerializeField] float armRotateSpeed = 120f;
 
     Rigidbody rb;
     Transform viewCamera;
+    Transform[] wheels;
+    float[] wheelRadii;
+    Transform arm;
+    float armX;
+    float armBaseY;
+    float armBaseZ;
     float stunLeft;
 
     public Vector3 DriveVelocity { get; private set; }
@@ -34,6 +45,73 @@ public class CarController : MonoBehaviour
         rb.constraints = RigidbodyConstraints.FreezeRotation;
         rb.interpolation = RigidbodyInterpolation.Interpolate;
         viewCamera = Camera.main != null ? Camera.main.transform : null;
+        CollectWheels();
+        CollectArm();
+    }
+
+    void CollectArm()
+    {
+        Transform[] children = GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < children.Length; i++)
+        {
+            Transform child = children[i];
+            if (child != transform && child.name.Equals("Arm", System.StringComparison.OrdinalIgnoreCase))
+            {
+                arm = child;
+                break;
+            }
+        }
+
+        if (arm == null)
+        {
+            return;
+        }
+
+        Vector3 euler = arm.localEulerAngles;
+        armBaseY = euler.y;
+        armBaseZ = euler.z;
+        armX = armRestX;
+        ApplyArmRotation();
+    }
+
+    void CollectWheels()
+    {
+        List<Transform> found = new List<Transform>();
+        Transform[] children = GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < children.Length; i++)
+        {
+            Transform child = children[i];
+            if (child != transform && child.name.StartsWith("wheel", System.StringComparison.OrdinalIgnoreCase))
+            {
+                found.Add(child);
+            }
+        }
+
+        wheels = found.ToArray();
+        wheelRadii = new float[wheels.Length];
+        for (int i = 0; i < wheels.Length; i++)
+        {
+            wheelRadii[i] = EstimateWheelRadius(wheels[i]);
+        }
+    }
+
+    float EstimateWheelRadius(Transform wheel)
+    {
+        Renderer renderer = wheel.GetComponentInChildren<Renderer>();
+        if (renderer == null)
+        {
+            return Mathf.Max(0.05f, wheelRadius);
+        }
+
+        Vector3 size = renderer.bounds.size;
+        // Rolling radius is half the wheel height (or the smaller vertical/rolling dimension).
+        float radius = 0.5f * Mathf.Min(size.y, Mathf.Max(size.x, size.z));
+        if (radius < 0.05f)
+        {
+            radius = Mathf.Max(0.05f, wheelRadius);
+        }
+
+        return radius;
     }
 
     void Update()
@@ -41,6 +119,64 @@ public class CarController : MonoBehaviour
         if (stunLeft > 0f)
         {
             stunLeft -= Time.deltaTime;
+        }
+
+        UpdateArm();
+        SpinWheels();
+    }
+
+    void UpdateArm()
+    {
+        if (arm == null)
+        {
+            return;
+        }
+
+        bool raise = false;
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard != null && keyboard.upArrowKey.isPressed)
+        {
+            raise = true;
+        }
+
+        float target = raise ? armRaisedX : armRestX;
+        armX = Mathf.MoveTowards(armX, target, armRotateSpeed * Time.deltaTime);
+        ApplyArmRotation();
+    }
+
+    void ApplyArmRotation()
+    {
+        arm.localRotation = Quaternion.Euler(armX, armBaseY, armBaseZ);
+    }
+
+    void SpinWheels()
+    {
+        if (wheels == null || wheels.Length == 0)
+        {
+            return;
+        }
+
+        float signedSpeed = Vector3.Dot(DriveVelocity, transform.forward);
+        if (Mathf.Abs(signedSpeed) < 0.01f)
+        {
+            return;
+        }
+
+        // Roll around the truck axle (left-right), independent of mesh import orientation.
+        Vector3 axle = transform.right;
+        for (int i = 0; i < wheels.Length; i++)
+        {
+            Transform wheel = wheels[i];
+            if (wheel == null)
+            {
+                continue;
+            }
+
+            float radius = wheelRadii != null && i < wheelRadii.Length
+                ? wheelRadii[i]
+                : Mathf.Max(0.05f, wheelRadius);
+            float degrees = -signedSpeed / radius * Mathf.Rad2Deg * Time.deltaTime;
+            wheel.Rotate(axle, degrees, Space.World);
         }
     }
 

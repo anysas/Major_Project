@@ -10,7 +10,7 @@ public class ExperienceRestart : MonoBehaviour
 
     GameObject buttonRoot;
 
-    public static void NotifyBorderTouched()
+    public static void NotifyFailed()
     {
         if (IsEnded)
         {
@@ -25,6 +25,12 @@ public class ExperienceRestart : MonoBehaviour
         }
 
         instance.Show();
+    }
+
+    [System.Obsolete("Use NotifyFailed.")]
+    public static void NotifyBorderTouched()
+    {
+        NotifyFailed();
     }
 
     void Awake()

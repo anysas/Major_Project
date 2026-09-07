@@ -3,6 +3,8 @@ using UnityEngine.InputSystem;
 
 public class BirdEvent : MonoBehaviour
 {
+    const int FlockCount = 3;
+
     enum BirdPhase
     {
         Waiting,
@@ -28,19 +30,20 @@ public class BirdEvent : MonoBehaviour
     [SerializeField] float spawnHeightMin = 12f;
     [SerializeField] float spawnHeightMax = 18f;
     [SerializeField] float swoopSpeed = 22f;
-    [SerializeField] float circleHeight = 3.2f;
-    [SerializeField] float circleRadius = 2.4f;
+    [SerializeField] float circleHeight = 6.5f;
+    [SerializeField] float circleRadius = 3.5f;
     [SerializeField] float circleSpeed = 220f;
     [SerializeField] float fleeSpeed = 32f;
-    [SerializeField, Tooltip("Extra pitch for the bird model. The capsule prefab needs 90; a +Z facing model should use 0.")] float modelPitch = 90f;
 
     AudioSource hornSource;
-    Transform bird;
+    Transform[] birds;
+    Vector3[] fleeDirs;
+    float[] orbitOffsets;
+    Quaternion birdModelOffset = Quaternion.identity;
     BirdPhase phase = BirdPhase.Waiting;
     float waitLeft;
     float circleLeft;
     float orbitAngle;
-    Vector3 fleeDir;
     float fleeLeft;
 
     void Awake()
@@ -68,6 +71,7 @@ public class BirdEvent : MonoBehaviour
             birdPrefab = Resources.Load<GameObject>("Bird");
         }
 
+        CacheBirdModelOffset();
         ScheduleNextBird();
     }
 
@@ -86,6 +90,12 @@ public class BirdEvent : MonoBehaviour
         circleRadius = Mathf.Max(0.4f, circleRadius);
         circleSpeed = Mathf.Max(10f, circleSpeed);
         fleeSpeed = Mathf.Max(1f, fleeSpeed);
+        CacheBirdModelOffset();
+    }
+
+    void CacheBirdModelOffset()
+    {
+        birdModelOffset = birdPrefab != null ? birdPrefab.transform.rotation : Quaternion.identity;
     }
 
     void Update()
@@ -97,7 +107,7 @@ public class BirdEvent : MonoBehaviour
 
         if (ExperienceRestart.IsEnded)
         {
-            ClearBird();
+            ClearBirds();
             return;
         }
 
@@ -106,14 +116,14 @@ public class BirdEvent : MonoBehaviour
             waitLeft -= Time.deltaTime;
             if (waitLeft <= 0f)
             {
-                SpawnBird();
+                SpawnFlock();
             }
         }
     }
 
     void LateUpdate()
     {
-        if (bird == null || ExperienceRestart.IsEnded)
+        if (!HasBirds() || ExperienceRestart.IsEnded)
         {
             return;
         }
@@ -157,7 +167,7 @@ public class BirdEvent : MonoBehaviour
         waitLeft = Random.Range(spawnIntervalMin, spawnIntervalMax);
     }
 
-    void SpawnBird()
+    void SpawnFlock()
     {
         if (birdPrefab == null || truck == null)
         {
@@ -165,39 +175,70 @@ public class BirdEvent : MonoBehaviour
             return;
         }
 
+        ClearBirds();
+        CacheBirdModelOffset();
+
+        birds = new Transform[FlockCount];
+        fleeDirs = new Vector3[FlockCount];
+        orbitOffsets = new float[FlockCount];
+
         Vector3 truckPos = truck.transform.position;
-        float angle = Random.Range(0f, Mathf.PI * 2f);
-        float dist = Random.Range(spawnDistanceMin, spawnDistanceMax);
-        Vector3 spawn = truckPos + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * dist;
-        spawn.y = truckPos.y + Random.Range(spawnHeightMin, spawnHeightMax);
+        float baseAngle = Random.Range(0f, Mathf.PI * 2f);
+        orbitAngle = baseAngle;
 
-        GameObject spawned = Instantiate(birdPrefab, spawn, Quaternion.identity);
-        spawned.name = "Bird";
-        spawned.SetActive(true);
-        spawned.transform.SetParent(transform, true);
-        DisableColliders(spawned);
+        for (int i = 0; i < FlockCount; i++)
+        {
+            orbitOffsets[i] = i * (Mathf.PI * 2f / FlockCount);
+            float spawnAngle = baseAngle + orbitOffsets[i] + Random.Range(-0.25f, 0.25f);
+            float dist = Random.Range(spawnDistanceMin, spawnDistanceMax);
+            Vector3 spawn = truckPos + new Vector3(Mathf.Cos(spawnAngle), 0f, Mathf.Sin(spawnAngle)) * dist;
+            spawn.y = truckPos.y + Random.Range(spawnHeightMin, spawnHeightMax);
 
-        bird = spawned.transform;
-        orbitAngle = Mathf.Atan2(spawn.z - truckPos.z, spawn.x - truckPos.x);
+            GameObject spawned = Instantiate(birdPrefab, spawn, Quaternion.identity);
+            spawned.name = "Bird " + (i + 1);
+            spawned.SetActive(true);
+            spawned.transform.SetParent(transform, true);
+            DisableColliders(spawned);
+
+            birds[i] = spawned.transform;
+            FaceFlight(birds[i], OrbitPoint(i) - spawn);
+        }
+
         phase = BirdPhase.Swooping;
         circleLeft = circleBeforeStun;
-        FaceFlight(OrbitPoint() - spawn);
     }
 
     void StepSwoop(float dt)
     {
-        Vector3 target = OrbitPoint();
-        Vector3 next = Vector3.MoveTowards(bird.position, target, swoopSpeed * dt);
-        Vector3 delta = next - bird.position;
-        bird.position = next;
-        if (delta.sqrMagnitude > 0.0001f)
+        bool allArrived = true;
+        for (int i = 0; i < birds.Length; i++)
         {
-            FaceFlight(delta);
+            if (birds[i] == null)
+            {
+                continue;
+            }
+
+            Vector3 target = OrbitPoint(i);
+            Vector3 next = Vector3.MoveTowards(birds[i].position, target, swoopSpeed * dt);
+            Vector3 delta = next - birds[i].position;
+            birds[i].position = next;
+            if (delta.sqrMagnitude > 0.0001f)
+            {
+                FaceFlight(birds[i], delta);
+            }
+
+            if ((next - target).sqrMagnitude > 0.35f)
+            {
+                allArrived = false;
+            }
+            else
+            {
+                birds[i].position = target;
+            }
         }
 
-        if ((next - target).sqrMagnitude <= 0.25f)
+        if (allArrived)
         {
-            bird.position = target;
             phase = BirdPhase.Circling;
             circleLeft = circleBeforeStun;
         }
@@ -207,12 +248,23 @@ public class BirdEvent : MonoBehaviour
     {
         circleLeft -= dt;
         orbitAngle += circleSpeed * Mathf.Deg2Rad * dt;
-        Vector3 next = OrbitPoint();
-        next.y += Mathf.Sin(Time.time * 6f) * 0.12f;
-        Vector3 delta = next - bird.position;
-        bird.position = next;
-        Vector3 tangent = new Vector3(-Mathf.Sin(orbitAngle), 0f, Mathf.Cos(orbitAngle));
-        FaceFlight(delta.sqrMagnitude > 0.0001f ? Vector3.Lerp(tangent, delta, 0.35f) : tangent);
+
+        for (int i = 0; i < birds.Length; i++)
+        {
+            if (birds[i] == null)
+            {
+                continue;
+            }
+
+            Vector3 next = OrbitPoint(i);
+            next.y += Mathf.Sin(Time.time * 6f + orbitOffsets[i]) * 0.12f;
+            Vector3 delta = next - birds[i].position;
+            birds[i].position = next;
+
+            float angle = orbitAngle + orbitOffsets[i];
+            Vector3 tangent = new Vector3(-Mathf.Sin(angle), 0f, Mathf.Cos(angle));
+            FaceFlight(birds[i], delta.sqrMagnitude > 0.0001f ? Vector3.Lerp(tangent, delta, 0.35f) : tangent);
+        }
 
         if (circleLeft <= 0f)
         {
@@ -228,52 +280,104 @@ public class BirdEvent : MonoBehaviour
     void StepFlee(float dt)
     {
         fleeLeft -= dt;
-        bird.position += fleeDir * (fleeSpeed * dt);
-        FaceFlight(fleeDir);
-        if (fleeLeft <= 0f)
+        bool anyLeft = false;
+        for (int i = 0; i < birds.Length; i++)
         {
-            ClearBird();
+            if (birds[i] == null)
+            {
+                continue;
+            }
+
+            anyLeft = true;
+            birds[i].position += fleeDirs[i] * (fleeSpeed * dt);
+            FaceFlight(birds[i], fleeDirs[i]);
+        }
+
+        if (fleeLeft <= 0f || !anyLeft)
+        {
+            ClearBirds();
             ScheduleNextBird();
         }
     }
 
     void BeginFlee()
     {
-        if (bird == null)
+        if (!HasBirds())
         {
             ScheduleNextBird();
             return;
         }
 
-        Vector3 away = bird.position - TruckTop();
-        away.y = 0f;
-        if (away.sqrMagnitude < 0.0001f)
+        Vector3 center = TruckTop();
+        for (int i = 0; i < birds.Length; i++)
         {
-            away = bird.forward;
+            if (birds[i] == null)
+            {
+                fleeDirs[i] = Vector3.up;
+                continue;
+            }
+
+            Vector3 away = birds[i].position - center;
             away.y = 0f;
+            if (away.sqrMagnitude < 0.0001f)
+            {
+                float angle = orbitAngle + orbitOffsets[i];
+                away = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+            }
+
+            // Spread each bird onto its own outbound path.
+            float yaw = i * (360f / FlockCount) + Random.Range(-18f, 18f);
+            Vector3 spread = Quaternion.Euler(0f, yaw, 0f) * away.normalized;
+            fleeDirs[i] = (spread + Vector3.up * Random.Range(0.35f, 0.7f)).normalized;
         }
 
-        fleeDir = (away.normalized + Vector3.up * 0.45f).normalized;
         fleeLeft = 3.5f;
         phase = BirdPhase.Fleeing;
     }
 
-    void ClearBird()
+    void ClearBirds()
     {
-        if (bird != null)
+        if (birds != null)
         {
-            Destroy(bird.gameObject);
-            bird = null;
+            for (int i = 0; i < birds.Length; i++)
+            {
+                if (birds[i] != null)
+                {
+                    Destroy(birds[i].gameObject);
+                    birds[i] = null;
+                }
+            }
         }
 
+        birds = null;
+        fleeDirs = null;
+        orbitOffsets = null;
         phase = BirdPhase.Waiting;
+    }
+
+    bool HasBirds()
+    {
+        if (birds == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < birds.Length; i++)
+        {
+            if (birds[i] != null)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     Vector3 TruckTop()
     {
         if (truck == null)
         {
-            return transform.position;
+            return transform.position + Vector3.up * circleHeight;
         }
 
         Vector3 pos = truck.transform.position;
@@ -281,21 +385,23 @@ public class BirdEvent : MonoBehaviour
         return pos;
     }
 
-    Vector3 OrbitPoint()
+    Vector3 OrbitPoint(int index)
     {
+        float angle = orbitAngle + (orbitOffsets != null ? orbitOffsets[index] : 0f);
         Vector3 center = TruckTop();
-        return center + new Vector3(Mathf.Cos(orbitAngle), 0f, Mathf.Sin(orbitAngle)) * circleRadius;
+        return center + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * circleRadius;
     }
 
-    void FaceFlight(Vector3 dir)
+    void FaceFlight(Transform bird, Vector3 dir)
     {
         dir.y = 0f;
-        if (dir.sqrMagnitude < 0.0001f)
+        if (bird == null || dir.sqrMagnitude < 0.0001f)
         {
             return;
         }
 
-        bird.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up) * Quaternion.Euler(modelPitch, 0f, 0f);
+        // Prefab face is opposite Unity's forward, so look along -dir.
+        bird.rotation = Quaternion.LookRotation(-dir.normalized, Vector3.up) * birdModelOffset;
     }
 
     static void DisableColliders(GameObject spawned)
