@@ -315,11 +315,11 @@ Transform:
   m_GameObject: {fileID: 850452940}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 11.360144, y: 30.3507, z: 20.925615}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 0}
+  m_Father: {fileID: 852700101}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &850452942
 MonoBehaviour:
@@ -349,6 +349,181 @@ MonoBehaviour:
   circleRadius: 7.29
   circleSpeed: 212.8
   fleeSpeed: 32
+--- !u!1 &851600100
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 851600101}
+  - component: {fileID: 851600102}
+  m_Layer: 0
+  m_Name: ExplosionEvent
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &851600101
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 851600100}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 852700101}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &851600102
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 851600100}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6f2c9a1e4b8d47c0a3e5f7d9b1c2e4a6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  truck: {fileID: 1847372040}
+  piles: {fileID: 1847372041}
+  floor: {fileID: 1721421041}
+  spawnIntervalMin: 10
+  spawnIntervalMax: 18
+  warningDuration: 3
+  flashIntervalStart: 0.45
+  flashIntervalEnd: 0.06
+  stunDuration: 1
+  blastRadius: 3.2
+  edgeInset: 1.25
+  warningColor: {r: 1, g: 0.15, b: 0.08, a: 0.55}
+  debrisCount: 28
+  debrisLifetime: 1.6
+  spaciousRadiusForMulti: 15
+  multiBlastSeparation: 6
+--- !u!1 &852700100
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 852700101}
+  - component: {fileID: 852700102}
+  m_Layer: 0
+  m_Name: EventsHandler
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &852700101
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 852700100}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 850452941}
+  - {fileID: 851600101}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &852700102
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 852700100}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9d4e7b2a5c8f41e0b6a1d3f5e7c9a0b2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targetDurationSeconds: 120
+  openingGraceSeconds: 4
+  intensityCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 3
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.15
+      value: 0.4
+      inSlope: 1.5
+      outSlope: 1.5
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 0.35
+      value: 0.7
+      inSlope: 1
+      outSlope: 1
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 0.6
+      value: 0.9
+      inSlope: 0.5
+      outSlope: 0.5
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0.2
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  pressureExponent: 0.65
+  birdIntervalEasy: {x: 6, y: 9}
+  birdIntervalHard: {x: 0.6, y: 1.6}
+  birdCircleEasy: 3
+  birdCircleHard: 1
+  birdSwoopSpeedEasy: 22
+  birdSwoopSpeedHard: 38
+  birdFleeSecondsEasy: 3.2
+  birdFleeSecondsHard: 1.4
+  birdFirstDelay: 4
+  explosionIntervalEasy: {x: 7, y: 11}
+  explosionIntervalHard: {x: 0.8, y: 2}
+  explosionWarningEasy: 2.8
+  explosionWarningHard: 1
+  explosionFirstDelay: 6
+  waitDrainHard: 2.4
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0
@@ -827,8 +1002,12 @@ MonoBehaviour:
   maxSpeed: 17.8
   acceleration: 70
   deceleration: 80
-  turnSpeed: 365.2
+  turnSpeed: 400
   wheelRadius: 0.75
+  armRestX: -100
+  armRaisedX: -145
+  armRotateSpeed: 166.9
+  loweredSpeedFactor: 0.6
 --- !u!114 &1847372041
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -849,24 +1028,27 @@ MonoBehaviour:
   count: 8
   radius: 19.8
   extraClearance: 2
-  pileHeight: 0.8
+  pileHeight: 1.2
   barrierHeight: 8
   blockGap: 2.66
   blockSeparation: 0.85
-  startBackOffset: 9.24
+  maxNeighborRadiusDelta: 2.75
+  minEdgeLengthPadding: 0.15
+  startBackOffset: 8
   closeThreatCount: 2
   closeThreatBackOffset: 3.5
   maxPushDistance: 70
   creepSpeed: 1
   emptyWallCreepScale: 0.7
   firstFallStagger: 0.35
-  closestHeadStart: 0.72
+  closestHeadStart: 0.55
   stopHoldSeconds: 2.5
-  pushSpeedThreshold: 0.25
-  startSpread: 14
-  trapProbeDistance: 1.4
-  trapHoldSeconds: 0.55
-  frontPushDot: 0.45
+  pushSpeedThreshold: 0.12
+  startSpread: 7
+  maxStartDistance: 24
+  startViewPadding: 0.98
+  failContactCount: 3
+  frontPushDot: 0.2
   pileMaterial: {fileID: 2100000, guid: a8c3d1f4e6b2497a9c0d5e2f1a3b8c47, type: 2}
   pileColor: {r: 0.7264151, g: 0.6816474, b: 0.41460484, a: 1}
   coverPadding: 70
@@ -876,7 +1058,8 @@ MonoBehaviour:
   pushWindowMax: 4.25
   finishPush: 3.6
   edgeRecedeLerp: 6
-  consumeDuration: 0.7
+  consumeDuration: 0.85
+  consumeRiseHeight: 2.4
   respawnDelayMin: 0.5
   respawnDelayMax: 1.25
   fallDuration: 0.45
@@ -909,5 +1092,5 @@ SceneRoots:
   - {fileID: 832575519}
   - {fileID: 963194228}
   - {fileID: 1721421041}
-  - {fileID: 850452941}
+  - {fileID: 852700101}
   - {fileID: 1847372038}

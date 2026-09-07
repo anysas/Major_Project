@@ -12,8 +12,9 @@ public class CarController : MonoBehaviour
     [SerializeField] float turnSpeed = 240f;
     [SerializeField] float wheelRadius = 0.75f;
     [SerializeField] float armRestX = -100f;
-    [SerializeField] float armRaisedX = -145f;
+    [SerializeField] float armRaisedX = -55f;
     [SerializeField] float armRotateSpeed = 120f;
+    [SerializeField] float loweredSpeedFactor = 0.7f;
 
     Rigidbody rb;
     Transform viewCamera;
@@ -21,11 +22,12 @@ public class CarController : MonoBehaviour
     float[] wheelRadii;
     Transform arm;
     float armX;
-    float armBaseY;
-    float armBaseZ;
+    Quaternion armRestLocalRotation;
     float stunLeft;
 
     public Vector3 DriveVelocity { get; private set; }
+
+    public bool IsArmRaised { get; private set; }
 
     public bool IsStunned
     {
@@ -67,11 +69,12 @@ public class CarController : MonoBehaviour
             return;
         }
 
+        // Local X is flipped on this mesh: more negative pitches into the ground.
+        // Rest at -100, raise toward the opposite side of the old -145 target (-55).
         Vector3 euler = arm.localEulerAngles;
-        armBaseY = euler.y;
-        armBaseZ = euler.z;
+        arm.localRotation = Quaternion.Euler(armRestX, euler.y, euler.z);
+        armRestLocalRotation = arm.localRotation;
         armX = armRestX;
-        ApplyArmRotation();
     }
 
     void CollectWheels()
@@ -127,11 +130,6 @@ public class CarController : MonoBehaviour
 
     void UpdateArm()
     {
-        if (arm == null)
-        {
-            return;
-        }
-
         bool raise = false;
         Keyboard keyboard = Keyboard.current;
         if (keyboard != null && keyboard.upArrowKey.isPressed)
@@ -139,14 +137,17 @@ public class CarController : MonoBehaviour
             raise = true;
         }
 
+        IsArmRaised = raise;
+
+        if (arm == null)
+        {
+            return;
+        }
+
         float target = raise ? armRaisedX : armRestX;
         armX = Mathf.MoveTowards(armX, target, armRotateSpeed * Time.deltaTime);
-        ApplyArmRotation();
-    }
-
-    void ApplyArmRotation()
-    {
-        arm.localRotation = Quaternion.Euler(armX, armBaseY, armBaseZ);
+        float pitchFromRest = armX - armRestX;
+        arm.localRotation = armRestLocalRotation * Quaternion.Euler(pitchFromRest, 0f, 0f);
     }
 
     void SpinWheels()
@@ -192,10 +193,14 @@ public class CarController : MonoBehaviour
         Vector3 moveDir = CameraRelativeDirection(ReadMoveInput());
         Vector3 velocity = rb.linearVelocity;
         Vector3 horizontal = new Vector3(velocity.x, 0f, velocity.z);
+        float raiseT = Mathf.Abs(armRaisedX - armRestX) > 0.001f
+            ? Mathf.InverseLerp(armRestX, armRaisedX, armX)
+            : 1f;
+        float speedCap = maxSpeed * Mathf.Lerp(loweredSpeedFactor, 1f, raiseT);
 
         if (moveDir.sqrMagnitude > 0.01f)
         {
-            float speed = Mathf.MoveTowards(horizontal.magnitude, maxSpeed, acceleration * Time.fixedDeltaTime);
+            float speed = Mathf.MoveTowards(horizontal.magnitude, speedCap, acceleration * Time.fixedDeltaTime);
             horizontal = moveDir * speed;
 
             Quaternion targetRotation = Quaternion.LookRotation(moveDir, Vector3.up);
@@ -223,17 +228,17 @@ public class CarController : MonoBehaviour
                 x -= 1f;
             }
 
-            if (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed)
+            if (keyboard.dKey.isPressed)
             {
                 x += 1f;
             }
 
-            if (keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed)
+            if (keyboard.wKey.isPressed)
             {
                 z += 1f;
             }
 
-            if (keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed)
+            if (keyboard.sKey.isPressed)
             {
                 z -= 1f;
             }

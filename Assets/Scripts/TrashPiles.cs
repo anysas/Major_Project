@@ -19,6 +19,8 @@ public class TrashPiles : MonoBehaviour
     [SerializeField] float barrierHeight = 8f;
     [SerializeField, Tooltip("Empty space between each block and the polygon inner edge.")] float blockGap = 0.45f;
     [SerializeField, Tooltip("Minimum extra space kept between neighboring blocks.")] float blockSeparation = 0.85f;
+    [SerializeField, Tooltip("How differently far neighboring corners can sit from the center. Stops deep spikes that fill the hole.")] float maxNeighborRadiusDelta = 2.75f;
+    [SerializeField, Tooltip("Extra padding added on top of the compactor width for the minimum edge length.")] float minEdgeLengthPadding = 0.15f;
     [SerializeField, Tooltip("How much farther from the circle blocks start, so the player can read the layout.")] float startBackOffset = 8f;
     [SerializeField, Min(0), Tooltip("How many blocks start much closer to the circle than the rest.")] int closeThreatCount = 2;
     [SerializeField, Tooltip("How much farther from the circle those closest walls start, so a falling block does not land on the border.")] float closeThreatBackOffset = 3.5f;
@@ -26,13 +28,14 @@ public class TrashPiles : MonoBehaviour
     [SerializeField] float creepSpeed = 0.8f;
     [SerializeField, Range(0.05f, 1f), Tooltip("How fast a wall creeps when no trash block is sitting on it.")] float emptyWallCreepScale = 0.4f;
     [SerializeField, Tooltip("Delay between each wall's first drop, closest to the border first.")] float firstFallStagger = 0.35f;
-    [SerializeField, Range(0f, 0.95f), Tooltip("How far along the crawl the closest walls start, so they drop first.")] float closestHeadStart = 0.72f;
+    [SerializeField, Range(0f, 0.95f), Tooltip("How far along the crawl the opening trash starts (0 = far out, 1 = at the lip).")] float closestHeadStart = 0.55f;
     [SerializeField] float stopHoldSeconds = 2.5f;
-    [SerializeField] float pushSpeedThreshold = 0.25f;
-    [SerializeField, Tooltip("How much farther the outermost starting blocks sit from the closest ones.")] float startSpread = 5.5f;
-    [SerializeField, Tooltip("How far past the truck body to check for walls on each side.")] float trapProbeDistance = 1.4f;
-    [SerializeField, Tooltip("How long both sides must stay blocked before failing.")] float trapHoldSeconds = 0.55f;
-    [SerializeField, Range(0.05f, 0.95f), Tooltip("How centered a block must be in front of the truck to be pushable. 1 = straight ahead only.")] float frontPushDot = 0.45f;
+    [SerializeField] float pushSpeedThreshold = 0.12f;
+    [SerializeField, Tooltip("How much farther the outermost starting blocks sit from the closest ones.")] float startSpread = 7f;
+    [SerializeField, Tooltip("Hard cap on how far starting edges can sit from center. Also clamped to the camera view.")] float maxStartDistance = 24f;
+    [SerializeField, Range(0.5f, 1f), Tooltip("Keep starting edges this far inside the camera ground footprint.")] float startViewPadding = 0.98f;
+    [SerializeField, Min(1), Tooltip("Fail when this many non-front trash blocks touch the truck at once.")] int failContactCount = 3;
+    [SerializeField, Range(0.05f, 0.95f), Tooltip("How centered a block must be in front of the truck to be pushable. Lower = wider front cone.")] float frontPushDot = 0.2f;
     [SerializeField] Material pileMaterial;
     [SerializeField] Color pileColor = new Color(0.55f, 0.55f, 0.55f, 1f);
     [SerializeField, Tooltip("How far the trash floor extends past the real floor so corners stay covered.")] float coverPadding = 70f;
@@ -42,7 +45,8 @@ public class TrashPiles : MonoBehaviour
     [SerializeField, Tooltip("Longest time a landed block waits for a push.")] float pushWindowMax = 4.25f;
     [SerializeField, Tooltip("How much farther the wall recedes after the block is shoved into it and disappears.")] float finishPush = 3.6f;
     [SerializeField, Tooltip("How quickly a receding edge eases into place. Higher is snappier.")] float edgeRecedeLerp = 6f;
-    [SerializeField] float consumeDuration = 0.7f;
+    [SerializeField] float consumeDuration = 0.85f;
+    [SerializeField, Tooltip("How high expired trash floats while fading out.")] float consumeRiseHeight = 2.4f;
     [SerializeField] float respawnDelayMin = 0.5f;
     [SerializeField] float respawnDelayMax = 1.25f;
     [SerializeField] float fallDuration = 0.45f;
@@ -79,7 +83,7 @@ public class TrashPiles : MonoBehaviour
     bool hasFloorBounds;
     bool dirty;
     int builtCount = -1;
-    float trapHoldLeft;
+    int lastSpawnEdge = -1;
 
     Transform worldRoot;
     Mesh pileMesh;
@@ -99,11 +103,14 @@ public class TrashPiles : MonoBehaviour
     float[] recedeLeft;
     float[] shoveDepth;
     Quaternion[] blockSpin;
+    Vector3[] blockBaseScale;
+    bool[] consumeFadeReady;
     Transform[] edgeWalls;
     readonly List<Vector3> verts = new List<Vector3>(2048);
     readonly List<Vector2> uvs = new List<Vector2>(2048);
     readonly List<int> tris = new List<int>(4096);
     readonly List<Vector3> sectorOuter = new List<Vector3>(64);
+    static MaterialPropertyBlock sharedFadeBlock;
 
     void Start()
     {
@@ -118,16 +125,19 @@ public class TrashPiles : MonoBehaviour
         barrierHeight = Mathf.Max(pileHeight, barrierHeight);
         blockGap = Mathf.Max(0.05f, blockGap);
         blockSeparation = Mathf.Max(0.1f, blockSeparation);
+        maxNeighborRadiusDelta = Mathf.Max(0.35f, maxNeighborRadiusDelta);
+        minEdgeLengthPadding = Mathf.Max(0f, minEdgeLengthPadding);
         startBackOffset = Mathf.Max(0f, startBackOffset);
         closeThreatCount = Mathf.Clamp(closeThreatCount, 0, 8);
         closeThreatBackOffset = Mathf.Max(0f, closeThreatBackOffset);
         maxPushDistance = Mathf.Max(1f, maxPushDistance);
         coverPadding = Mathf.Max(10f, coverPadding);
         pushSpeedThreshold = Mathf.Max(0.01f, pushSpeedThreshold);
-        trapProbeDistance = Mathf.Max(0.2f, trapProbeDistance);
-        trapHoldSeconds = Mathf.Max(0.05f, trapHoldSeconds);
+        failContactCount = Mathf.Max(1, failContactCount);
         frontPushDot = Mathf.Clamp(frontPushDot, 0.05f, 0.95f);
-        startSpread = Mathf.Max(0.5f, startSpread);
+        startSpread = Mathf.Max(0.25f, startSpread);
+        maxStartDistance = Mathf.Max(4f, maxStartDistance);
+        startViewPadding = Mathf.Clamp(startViewPadding, 0.5f, 1f);
         emptyWallCreepScale = Mathf.Clamp(emptyWallCreepScale, 0.05f, 1f);
         firstFallStagger = Mathf.Max(0f, firstFallStagger);
         closestHeadStart = Mathf.Clamp01(closestHeadStart);
@@ -138,6 +148,7 @@ public class TrashPiles : MonoBehaviour
         finishPush = Mathf.Max(0.1f, finishPush);
         edgeRecedeLerp = Mathf.Max(0.5f, edgeRecedeLerp);
         consumeDuration = Mathf.Max(0.05f, consumeDuration);
+        consumeRiseHeight = Mathf.Max(0.25f, consumeRiseHeight);
         respawnDelayMin = Mathf.Max(0f, respawnDelayMin);
         respawnDelayMax = Mathf.Max(respawnDelayMin, respawnDelayMax);
         fallDuration = Mathf.Max(0.05f, fallDuration);
@@ -167,7 +178,7 @@ public class TrashPiles : MonoBehaviour
         }
 
         ApplyBlockVisuals();
-        CheckFailWhenSidesBlocked();
+        CheckFailFromTrashContacts();
     }
 
     public bool IsBlockPushable(int index)
@@ -179,6 +190,178 @@ public class TrashPiles : MonoBehaviour
 
         BlockLife life = blockLife[index];
         return life == BlockLife.Placed || life == BlockLife.Shoving;
+    }
+
+    /// <summary>
+    /// Picks a random point on the floor inside the creeping pile walls.
+    /// </summary>
+    public bool TrySamplePlayAreaPoint(out Vector3 point, float edgeInset = 1.5f, int maxAttempts = 64)
+    {
+        point = Vector3.zero;
+        if (corners == null || corners.Length < 3)
+        {
+            return false;
+        }
+
+        Vector3 centroid = Vector3.zero;
+        for (int i = 0; i < corners.Length; i++)
+        {
+            centroid += corners[i];
+        }
+
+        centroid /= corners.Length;
+        centroid.y = 0f;
+
+        edgeInset = Mathf.Max(0f, edgeInset);
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            float angle = Random.Range(0f, Mathf.PI * 2f);
+            Vector3 dir = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+            float hitDist = RayToPlayEdge(centroid, dir);
+            if (hitDist <= edgeInset + 0.35f)
+            {
+                continue;
+            }
+
+            float maxReach = hitDist - edgeInset;
+            Vector3 candidate = centroid + dir * Random.Range(0f, maxReach);
+            candidate.y = 0.02f;
+            if (!PointInPlayPolygon(candidate))
+            {
+                continue;
+            }
+
+            point = candidate;
+            return true;
+        }
+
+        // Last resort: stay near the polygon middle, never the truck transform.
+        Vector3 fallback = centroid;
+        fallback.y = 0.02f;
+        if (PointInPlayPolygon(fallback) && DistanceToPlayEdge(fallback) > 0.2f)
+        {
+            point = fallback;
+            return true;
+        }
+
+        return false;
+    }
+
+    float RayToPlayEdge(Vector3 origin, Vector3 dir)
+    {
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < corners.Length; i++)
+        {
+            Vector3 a = corners[i];
+            Vector3 b = corners[Wrap(i + 1)];
+            if (RaySegmentIntersectXZ(origin, dir, a, b, out float t) && t > 0.001f)
+            {
+                best = Mathf.Min(best, t);
+            }
+        }
+
+        return float.IsInfinity(best) ? 0f : best;
+    }
+
+    static bool RaySegmentIntersectXZ(Vector3 origin, Vector3 dir, Vector3 a, Vector3 b, out float t)
+    {
+        t = 0f;
+        Vector2 o = new Vector2(origin.x, origin.z);
+        Vector2 d = new Vector2(dir.x, dir.z);
+        Vector2 aa = new Vector2(a.x, a.z);
+        Vector2 bb = new Vector2(b.x, b.z);
+        Vector2 s = bb - aa;
+
+        float denom = d.x * s.y - d.y * s.x;
+        if (Mathf.Abs(denom) < 0.000001f)
+        {
+            return false;
+        }
+
+        Vector2 ao = aa - o;
+        float rayT = (ao.x * s.y - ao.y * s.x) / denom;
+        float segT = (ao.x * d.y - ao.y * d.x) / denom;
+        if (rayT < 0f || segT < 0f || segT > 1f)
+        {
+            return false;
+        }
+
+        t = rayT;
+        return true;
+    }
+
+    public bool PointInPlayPolygon(Vector3 worldPoint)
+    {
+        if (corners == null || corners.Length < 3)
+        {
+            return false;
+        }
+
+        bool inside = false;
+        for (int i = 0, j = corners.Length - 1; i < corners.Length; j = i++)
+        {
+            Vector3 a = corners[i];
+            Vector3 b = corners[j];
+            bool crosses = ((a.z > worldPoint.z) != (b.z > worldPoint.z))
+                && (worldPoint.x < (b.x - a.x) * (worldPoint.z - a.z) / ((b.z - a.z) + Mathf.Epsilon) + a.x);
+            if (crosses)
+            {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
+    public float AverageCornerRadius()
+    {
+        if (corners == null || corners.Length == 0)
+        {
+            return 0f;
+        }
+
+        float sum = 0f;
+        for (int i = 0; i < corners.Length; i++)
+        {
+            sum += FlatDistanceFromCenter(i);
+        }
+
+        return sum / corners.Length;
+    }
+
+    public bool IsPlayAreaSpacious(float minAverageRadius)
+    {
+        return AverageCornerRadius() >= Mathf.Max(1f, minAverageRadius);
+    }
+
+    float DistanceToPlayEdge(Vector3 worldPoint)
+    {
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < corners.Length; i++)
+        {
+            Vector3 a = corners[i];
+            Vector3 b = corners[Wrap(i + 1)];
+            best = Mathf.Min(best, DistancePointToSegmentXZ(worldPoint, a, b));
+        }
+
+        return best;
+    }
+
+    static float DistancePointToSegmentXZ(Vector3 point, Vector3 a, Vector3 b)
+    {
+        Vector2 p = new Vector2(point.x, point.z);
+        Vector2 aa = new Vector2(a.x, a.z);
+        Vector2 bb = new Vector2(b.x, b.z);
+        Vector2 ab = bb - aa;
+        float lenSq = ab.sqrMagnitude;
+        if (lenSq < 0.0001f)
+        {
+            return Vector2.Distance(p, aa);
+        }
+
+        float t = Mathf.Clamp01(Vector2.Dot(p - aa, ab) / lenSq);
+        Vector2 closest = aa + ab * t;
+        return Vector2.Distance(p, closest);
     }
 
     public void SetBlockContact(int index, bool overlapping)
@@ -215,6 +398,12 @@ public class TrashPiles : MonoBehaviour
             return;
         }
 
+        CarController car = carBody.GetComponent<CarController>();
+        if (car != null && car.IsArmRaised)
+        {
+            return;
+        }
+
         Vector3 drive = DriveFromCar(carBody);
         if (drive.sqrMagnitude <= pushSpeedThreshold * pushSpeedThreshold)
         {
@@ -225,7 +414,8 @@ public class TrashPiles : MonoBehaviour
         Vector3 outward = EdgeOutward(index);
         float intoPush = Vector3.Dot(drive, pushDir);
         float intoOut = Vector3.Dot(drive, outward);
-        if (intoPush <= 0f && intoOut <= 0f)
+        // Allow glancing drives as long as some motion is toward the pile/block.
+        if (intoPush <= -0.15f && intoOut <= -0.15f)
         {
             return;
         }
@@ -244,66 +434,35 @@ public class TrashPiles : MonoBehaviour
         DriveBlockIntoPile(index, drive);
     }
 
-    void CheckFailWhenSidesBlocked()
+    void CheckFailFromTrashContacts()
     {
-        if (ExperienceRestart.IsEnded || carColliders == null || carColliders.Length == 0)
+        if (ExperienceRestart.IsEnded || overlapCount == null)
         {
-            trapHoldLeft = 0f;
             return;
         }
 
-        // Soft-lock fix: walls can jam into a ring before they touch the truck.
-        // Fail once both flanks are blocked so the player cannot strafe out.
-        bool leftBlocked = SideBlocked(-transform.right);
-        bool rightBlocked = SideBlocked(transform.right);
-        if (leftBlocked && rightBlocked)
+        int touching = 0;
+        int needed = Mathf.Max(1, failContactCount);
+        for (int i = 0; i < overlapCount.Length; i++)
         {
-            trapHoldLeft += Time.fixedDeltaTime;
-            if (trapHoldLeft >= trapHoldSeconds)
+            if (overlapCount[i] <= 0)
+            {
+                continue;
+            }
+
+            // Front trash is for pushing — only flanks/rear count toward fail.
+            if (IsFrontPush(i, transform))
+            {
+                continue;
+            }
+
+            touching++;
+            if (touching >= needed)
             {
                 ExperienceRestart.NotifyFailed();
+                return;
             }
         }
-        else
-        {
-            trapHoldLeft = 0f;
-        }
-    }
-
-    bool SideBlocked(Vector3 worldSide)
-    {
-        worldSide.y = 0f;
-        if (worldSide.sqrMagnitude < 0.0001f)
-        {
-            return false;
-        }
-
-        worldSide.Normalize();
-        Bounds bounds = TruckBounds();
-        Vector3 origin = bounds.center;
-        origin.y = Mathf.Max(0.6f, bounds.center.y);
-
-        float bodyReach =
-            Mathf.Abs(Vector3.Dot(worldSide, transform.right)) * bounds.extents.x +
-            Mathf.Abs(Vector3.Dot(worldSide, transform.forward)) * bounds.extents.z;
-        Vector3 start = origin + worldSide * (bodyReach + 0.08f);
-        float probe = Mathf.Max(0.2f, trapProbeDistance);
-
-        RaycastHit hit;
-        if (!Physics.Raycast(start, worldSide, out hit, probe, ~0, QueryTriggerInteraction.Ignore))
-        {
-            return false;
-        }
-
-        if (hit.collider == null)
-        {
-            return false;
-        }
-
-        Transform hitRoot = hit.collider.attachedRigidbody != null
-            ? hit.collider.attachedRigidbody.transform
-            : hit.collider.transform;
-        return hitRoot != transform && !hitRoot.IsChildOf(transform);
     }
 
     Bounds TruckBounds()
@@ -642,7 +801,7 @@ public class TrashPiles : MonoBehaviour
                     hiddenLeft[i] -= dt;
                     if (hiddenLeft[i] <= 0f)
                     {
-                        BeginCrawl(i);
+                        TryRespawnSpreadTrash(i);
                     }
 
                     break;
@@ -657,6 +816,7 @@ public class TrashPiles : MonoBehaviour
         SetBlockVisible(index, true);
         blockLife[index] = BlockLife.Crawling;
         crawlSpeed[index] = Random.Range(crawlSpeedMin, crawlSpeedMax);
+        ResetBlockConsumeVisuals(index);
         crawlPos[index] = CrawlStart(index);
         despawnLeft[index] = -1f;
         hiddenLeft[index] = 0f;
@@ -666,42 +826,207 @@ public class TrashPiles : MonoBehaviour
         }
 
         ApplyBlockTransform(index, crawlPos[index], BlockSpin(index));
+        lastSpawnEdge = index;
+    }
+
+    void TryRespawnSpreadTrash(int readyIndex)
+    {
+        if (blockLife == null || readyIndex < 0 || readyIndex >= count)
+        {
+            return;
+        }
+
+        if (blockLife[readyIndex] != BlockLife.Hidden)
+        {
+            return;
+        }
+
+        int target = PickSpreadSpawnEdge();
+        if (target < 0)
+        {
+            hiddenLeft[readyIndex] = Random.Range(respawnDelayMin, respawnDelayMax);
+            return;
+        }
+
+        BeginCrawl(target);
+        if (target != readyIndex && blockLife[readyIndex] == BlockLife.Hidden)
+        {
+            // This edge yielded to a farther slot — wait again for another turn.
+            hiddenLeft[readyIndex] = Random.Range(respawnDelayMin, respawnDelayMax);
+        }
+    }
+
+    int PickSpreadSpawnEdge()
+    {
+        int best = -1;
+        float bestScore = float.NegativeInfinity;
+
+        // Prefer edges that are not beside live trash; only fall back if every hidden slot is adjacent.
+        for (int pass = 0; pass < 2; pass++)
+        {
+            bool requireOpenSide = pass == 0;
+            for (int candidate = 0; candidate < count; candidate++)
+            {
+                if (blockLife[candidate] != BlockLife.Hidden)
+                {
+                    continue;
+                }
+
+                if (requireOpenSide && HasLiveNeighbor(candidate))
+                {
+                    continue;
+                }
+
+                float score = SpreadScoreForEdge(candidate);
+                score += Random.Range(0f, 0.05f);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = candidate;
+                }
+            }
+
+            if (best >= 0)
+            {
+                return best;
+            }
+        }
+
+        return best;
+    }
+
+    float SpreadScoreForEdge(int index)
+    {
+        if (HasLiveNeighbor(index))
+        {
+            // Strong penalty so adjacent edges almost never win when a farther slot exists.
+            return -1000f + EdgeSeparation(index, lastSpawnEdge >= 0 ? lastSpawnEdge : index) * 0.01f;
+        }
+
+        Vector3 point = EdgeMid(index);
+        point.y = 0f;
+        float nearest = float.PositiveInfinity;
+        bool anyLive = false;
+        for (int i = 0; i < count; i++)
+        {
+            if (i == index || !EdgeHasLiveTrash(i))
+            {
+                continue;
+            }
+
+            anyLive = true;
+            nearest = Mathf.Min(nearest, EdgeSeparation(index, i));
+        }
+
+        if (!anyLive)
+        {
+            if (lastSpawnEdge < 0)
+            {
+                return Random.value;
+            }
+
+            return EdgeSeparation(index, lastSpawnEdge);
+        }
+
+        return nearest;
+    }
+
+    bool HasLiveNeighbor(int index)
+    {
+        return EdgeHasLiveTrash(Wrap(index - 1)) || EdgeHasLiveTrash(Wrap(index + 1));
+    }
+
+    bool EdgeHasLiveTrash(int index)
+    {
+        if (blockLife == null || index < 0 || index >= blockLife.Length)
+        {
+            return false;
+        }
+
+        BlockLife life = blockLife[index];
+        return life != BlockLife.Hidden;
     }
 
     void StartOpeningCrawls()
     {
-        int[] order = new int[count];
-        for (int i = 0; i < count; i++)
-        {
-            order[i] = i;
-        }
+        // Start a spread-out subset; never place opening trash on neighboring edges.
+        int initialCount = Mathf.Clamp(Mathf.Max(2, count / 2), 1, Mathf.Max(1, count / 2 + count % 2));
+        bool[] selected = new bool[count];
+        int[] chosen = new int[initialCount];
+        int chosenCount = 0;
 
-        for (int a = 0; a < count - 1; a++)
+        chosen[0] = Random.Range(0, count);
+        selected[chosen[0]] = true;
+        chosenCount = 1;
+
+        for (int n = 1; n < initialCount; n++)
         {
-            int best = a;
-            for (int b = a + 1; b < count; b++)
+            int best = -1;
+            float bestScore = float.NegativeInfinity;
+            for (int candidate = 0; candidate < count; candidate++)
             {
-                if (WallDistance(order[b]) < WallDistance(order[best]))
+                if (selected[candidate] || IsNeighborOfSelected(candidate, selected))
                 {
-                    best = b;
+                    continue;
+                }
+
+                float nearest = float.PositiveInfinity;
+                for (int s = 0; s < chosenCount; s++)
+                {
+                    nearest = Mathf.Min(nearest, EdgeSeparation(candidate, chosen[s]));
+                }
+
+                if (nearest > bestScore)
+                {
+                    bestScore = nearest;
+                    best = candidate;
                 }
             }
 
-            int swap = order[a];
-            order[a] = order[best];
-            order[best] = swap;
+            if (best < 0)
+            {
+                break;
+            }
+
+            chosen[chosenCount++] = best;
+            selected[best] = true;
         }
 
         float stagger = Mathf.Max(0f, firstFallStagger);
-        float head = Mathf.Clamp01(closestHeadStart);
-        for (int rank = 0; rank < count; rank++)
+        float headBase = Mathf.Clamp(closestHeadStart, 0.45f, 0.85f);
+        for (int rank = 0; rank < chosenCount; rank++)
         {
-            int index = order[rank];
-            float closeness = count <= 1 ? 1f : 1f - rank / (float)(count - 1);
-            openingHeadStart[index] = closeness * head;
-            crawlHold[index] = rank * stagger;
+            int index = chosen[rank];
+            float rankT = chosenCount <= 1 ? 0f : rank / (float)(chosenCount - 1);
+            openingHeadStart[index] = Mathf.Lerp(headBase + 0.12f, headBase, rankT);
+            crawlHold[index] = rank * stagger * 0.25f;
             BeginCrawl(index);
         }
+
+        for (int i = 0; i < count; i++)
+        {
+            if (selected[i])
+            {
+                continue;
+            }
+
+            BeginHidden(i);
+            hiddenLeft[i] = Random.Range(respawnDelayMin, respawnDelayMax) + (i + 1) * stagger;
+        }
+    }
+
+    bool IsNeighborOfSelected(int candidate, bool[] selected)
+    {
+        return selected[Wrap(candidate - 1)] || selected[Wrap(candidate + 1)];
+    }
+
+    float EdgeSeparation(int a, int b)
+    {
+        Vector3 pa = EdgeMid(a);
+        Vector3 pb = EdgeMid(b);
+        pa.y = 0f;
+        pb.y = 0f;
+        return Vector3.Distance(pa, pb);
     }
 
     void BeginFall(int index)
@@ -785,12 +1110,15 @@ public class TrashPiles : MonoBehaviour
         fallFrom[index] = cornerBlocks[index] != null ? cornerBlocks[index].position : BlockPosition(index);
         fallElapsed[index] = 0f;
         despawnLeft[index] = -1f;
+        PrepareConsumeFade(index);
+        SetBlockOpacity(index, 1f);
     }
 
     void BeginHidden(int index)
     {
         ClearBlockContact(index);
         SetBlockInteractable(index, false);
+        ResetBlockConsumeVisuals(index);
         SetBlockVisible(index, false);
         blockLife[index] = BlockLife.Hidden;
         hiddenLeft[index] = Random.Range(respawnDelayMin, respawnDelayMax);
@@ -851,17 +1179,199 @@ public class TrashPiles : MonoBehaviour
     {
         fallElapsed[index] += dt;
         float t = Mathf.Clamp01(fallElapsed[index] / consumeDuration);
+        float ease = t * t;
         Vector3 from = fallFrom[index];
-        Vector3 to = IntoPilePoint(index, cubeExtent * 2.1f, PileTopY());
-        to.y = Mathf.Lerp(PileTopY(), Mathf.Max(0.08f, pileHeight * 0.35f), t);
+        Vector3 pile = IntoPilePoint(index, cubeExtent * 1.6f, PileTopY());
         Vector3 pos;
-        pos.x = Mathf.Lerp(from.x, to.x, t);
-        pos.z = Mathf.Lerp(from.z, to.z, t);
-        pos.y = Mathf.Lerp(from.y, to.y, t * t);
-        ApplyBlockTransform(index, pos, BlockSpin(index));
+        pos.x = Mathf.Lerp(from.x, pile.x, t);
+        pos.z = Mathf.Lerp(from.z, pile.z, t);
+        // Slide back into the pile while floating up and fading out.
+        float startY = Mathf.Max(from.y, PileTopY());
+        pos.y = Mathf.Lerp(startY, startY + consumeRiseHeight, ease);
+
+        Transform root = cornerBlocks[index];
+        if (root != null)
+        {
+            Quaternion rot = BlockSpin(index);
+            root.SetPositionAndRotation(pos, rot);
+            Vector3 baseScale = blockBaseScale != null ? blockBaseScale[index] : Vector3.one;
+            root.localScale = baseScale * Mathf.Lerp(1f, 0.08f, ease);
+            if (cornerBodies[index] != null)
+            {
+                cornerBodies[index].position = pos;
+                cornerBodies[index].rotation = rot;
+            }
+        }
+
+        SetBlockOpacity(index, 1f - ease);
         if (t >= 1f)
         {
             BeginHidden(index);
+        }
+    }
+
+    void PrepareConsumeFade(int index)
+    {
+        if (cornerBlocks == null || cornerBlocks[index] == null)
+        {
+            return;
+        }
+
+        if (consumeFadeReady != null && consumeFadeReady[index])
+        {
+            return;
+        }
+
+        Renderer[] renderers = cornerBlocks[index].GetComponentsInChildren<Renderer>(true);
+        for (int r = 0; r < renderers.Length; r++)
+        {
+            Renderer renderer = renderers[r];
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            Material[] materials = renderer.materials;
+            for (int m = 0; m < materials.Length; m++)
+            {
+                SetupTransparentFade(materials[m]);
+            }
+
+            renderer.materials = materials;
+        }
+
+        if (consumeFadeReady != null)
+        {
+            consumeFadeReady[index] = true;
+        }
+    }
+
+    void ResetBlockConsumeVisuals(int index)
+    {
+        if (cornerBlocks == null || cornerBlocks[index] == null)
+        {
+            return;
+        }
+
+        if (blockBaseScale != null)
+        {
+            cornerBlocks[index].localScale = blockBaseScale[index];
+        }
+
+        SetBlockOpacity(index, 1f);
+        Renderer[] renderers = cornerBlocks[index].GetComponentsInChildren<Renderer>(true);
+        for (int r = 0; r < renderers.Length; r++)
+        {
+            if (renderers[r] != null)
+            {
+                renderers[r].SetPropertyBlock(null);
+            }
+        }
+    }
+
+    void SetBlockOpacity(int index, float alpha)
+    {
+        if (cornerBlocks == null || cornerBlocks[index] == null)
+        {
+            return;
+        }
+
+        alpha = Mathf.Clamp01(alpha);
+        if (sharedFadeBlock == null)
+        {
+            sharedFadeBlock = new MaterialPropertyBlock();
+        }
+
+        Renderer[] renderers = cornerBlocks[index].GetComponentsInChildren<Renderer>(true);
+        for (int r = 0; r < renderers.Length; r++)
+        {
+            Renderer renderer = renderers[r];
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            Material mat = renderer.sharedMaterial;
+            Color color = Color.white;
+            if (mat != null)
+            {
+                if (mat.HasProperty("_BaseColor"))
+                {
+                    color = mat.GetColor("_BaseColor");
+                }
+                else if (mat.HasProperty("_Color"))
+                {
+                    color = mat.GetColor("_Color");
+                }
+                else
+                {
+                    color = mat.color;
+                }
+            }
+
+            color.a = alpha;
+            sharedFadeBlock.Clear();
+            sharedFadeBlock.SetColor("_BaseColor", color);
+            sharedFadeBlock.SetColor("_Color", color);
+            renderer.SetPropertyBlock(sharedFadeBlock);
+
+            // Keep instance materials in sync for shaders that ignore property blocks for alpha.
+            Material[] materials = renderer.materials;
+            for (int m = 0; m < materials.Length; m++)
+            {
+                if (materials[m] == null)
+                {
+                    continue;
+                }
+
+                if (materials[m].HasProperty("_BaseColor"))
+                {
+                    Color baseColor = materials[m].GetColor("_BaseColor");
+                    baseColor.a = alpha;
+                    materials[m].SetColor("_BaseColor", baseColor);
+                }
+
+                if (materials[m].HasProperty("_Color"))
+                {
+                    Color tint = materials[m].GetColor("_Color");
+                    tint.a = alpha;
+                    materials[m].SetColor("_Color", tint);
+                }
+
+                materials[m].color = new Color(materials[m].color.r, materials[m].color.g, materials[m].color.b, alpha);
+            }
+        }
+    }
+
+    static void SetupTransparentFade(Material material)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        if (material.HasProperty("_Surface"))
+        {
+            material.SetFloat("_Surface", 1f);
+            material.SetFloat("_Blend", 0f);
+            material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_ZWrite", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.DisableKeyword("_SURFACE_TYPE_OPAQUE");
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.renderQueue = 3000;
+        }
+        else if (material.shader != null && material.shader.name.Contains("Standard"))
+        {
+            material.SetFloat("_Mode", 3f);
+            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetInt("_ZWrite", 0);
+            material.DisableKeyword("_ALPHATEST_ON");
+            material.EnableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            material.renderQueue = 3000;
         }
     }
 
@@ -1198,6 +1708,8 @@ public class TrashPiles : MonoBehaviour
         recedeLeft = new float[count];
         shoveDepth = new float[count];
         blockSpin = new Quaternion[count];
+        blockBaseScale = new Vector3[count];
+        consumeFadeReady = new bool[count];
         carColliders = GetComponentsInChildren<Collider>();
         PlaceStartingCorners();
 
@@ -1234,15 +1746,19 @@ public class TrashPiles : MonoBehaviour
         float borderSafe = landClear / apothemScale;
         float carSafe = CarClearanceRadius() + inset + extraClearance + 1.5f;
         float safeMin = Mathf.Max(minRadius, borderSafe, carSafe);
+        float viewCap = EstimateVisibleStartDistance();
+        float startCap = Mathf.Max(safeMin + 1.25f, Mathf.Min(maxStartDistance, viewCap));
+
         float threatClose = safeMin + closeThreatBackOffset;
-        float threatFar = threatClose + 2.5f;
+        float threatFar = threatClose + Mathf.Min(1.5f, startSpread * 0.35f);
         float normalClose = safeMin + startBackOffset;
-        float normalFar = normalClose + startSpread * 1.5f;
-        safeMin = Mathf.Min(safeMin, maxPushDistance);
-        threatClose = Mathf.Min(Mathf.Max(safeMin + 0.35f, threatClose), maxPushDistance);
-        threatFar = Mathf.Min(Mathf.Max(threatClose + 0.35f, threatFar), maxPushDistance);
-        normalClose = Mathf.Min(Mathf.Max(threatFar + 0.75f, normalClose), maxPushDistance);
-        normalFar = Mathf.Min(Mathf.Max(normalClose + 0.75f, normalFar), maxPushDistance);
+        float normalFar = normalClose + startSpread;
+
+        safeMin = Mathf.Min(safeMin, startCap);
+        threatClose = Mathf.Clamp(threatClose, safeMin + 0.25f, startCap);
+        threatFar = Mathf.Clamp(threatFar, threatClose + 0.25f, startCap);
+        normalClose = Mathf.Clamp(normalClose, Mathf.Min(threatFar + 0.35f, startCap), startCap);
+        normalFar = Mathf.Clamp(normalFar, normalClose + 0.25f, startCap);
 
         bool[] closeThreat = new bool[count];
         int threatCount = Mathf.Min(closeThreatCount, Mathf.Max(0, count - 1));
@@ -1274,6 +1790,54 @@ public class TrashPiles : MonoBehaviour
             pushedThisStep[i] = false;
             vertexMovedThisStep[i] = false;
         }
+    }
+
+    float EstimateVisibleStartDistance()
+    {
+        Camera cam = Camera.main;
+        if (cam == null)
+        {
+            return maxStartDistance;
+        }
+
+        float maxDist = 0f;
+        Vector3[] cornersUv =
+        {
+            new Vector3(0.08f, 0.08f, 0f),
+            new Vector3(0.92f, 0.08f, 0f),
+            new Vector3(0.08f, 0.92f, 0f),
+            new Vector3(0.92f, 0.92f, 0f),
+            new Vector3(0.5f, 0.12f, 0f),
+            new Vector3(0.5f, 0.88f, 0f),
+            new Vector3(0.12f, 0.5f, 0f),
+            new Vector3(0.88f, 0.5f, 0f)
+        };
+
+        for (int i = 0; i < cornersUv.Length; i++)
+        {
+            Ray ray = cam.ViewportPointToRay(cornersUv[i]);
+            if (Mathf.Abs(ray.direction.y) < 0.0001f)
+            {
+                continue;
+            }
+
+            float t = -ray.origin.y / ray.direction.y;
+            if (t <= 0f)
+            {
+                continue;
+            }
+
+            Vector3 hit = ray.origin + ray.direction * t;
+            hit.y = 0f;
+            maxDist = Mathf.Max(maxDist, Vector3.Distance(center, hit));
+        }
+
+        if (maxDist < 1f)
+        {
+            return maxStartDistance;
+        }
+
+        return maxDist * Mathf.Clamp(startViewPadding, 0.5f, 1f);
     }
 
     bool NeighborsThreat(bool[] closeThreat, int pick, int lastPicked)
@@ -1319,6 +1883,8 @@ public class TrashPiles : MonoBehaviour
             cornerBlocks[i] = spawned.transform;
             cornerBodies[i] = spawned.GetComponent<Rigidbody>();
             blockRenderers[i] = spawned.GetComponentInChildren<Renderer>();
+            blockBaseScale[i] = spawned.transform.localScale;
+            consumeFadeReady[i] = false;
             ApplyBlockTransform(i, pos, rotation);
         }
     }
@@ -1626,7 +2192,7 @@ public class TrashPiles : MonoBehaviour
                 continue;
             }
 
-            if (idleSeconds[i] < stopHoldSeconds)
+            if (idleSeconds[i] < CurrentCreepHoldSeconds())
             {
                 idleSeconds[i] += Time.fixedDeltaTime;
                 continue;
@@ -1643,11 +2209,13 @@ public class TrashPiles : MonoBehaviour
             float step = VertexCreepSpeed(i) * Time.fixedDeltaTime;
             float next = Mathf.MoveTowards(dist, target, step);
             corners[i] = center + offset / dist * next;
+            ClampCorner(i);
             moved = true;
         }
 
         if (moved)
         {
+            SanitizePolygon();
             dirty = true;
         }
     }
@@ -1655,6 +2223,7 @@ public class TrashPiles : MonoBehaviour
     void ApplyShape()
     {
         dirty = false;
+        SanitizePolygon();
         RebuildMesh();
         PlaceCorners();
         PlaceEdgeWalls();
@@ -1825,6 +2394,161 @@ public class TrashPiles : MonoBehaviour
     {
         ClampRadiusOnly(index);
         KeepNeighborSpacing(index);
+        LimitNeighborRadiusDelta(index);
+    }
+
+    void SanitizePolygon()
+    {
+        if (corners == null || corners.Length < 3)
+        {
+            return;
+        }
+
+        // A few passes so radius limits, angle order, and edge length reinforce each other.
+        for (int pass = 0; pass < 3; pass++)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                ClampRadiusOnly(i);
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                LimitNeighborRadiusDelta(i);
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                int prev = Wrap(i - 1);
+                int next = Wrap(i + 1);
+                ConstrainAngleOrder(i, prev, next);
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                EnsureMinEdgeLength(i);
+                KeepEdgeClearOfCenter(i);
+            }
+        }
+    }
+
+    void LimitNeighborRadiusDelta(int index)
+    {
+        int prev = Wrap(index - 1);
+        int next = Wrap(index + 1);
+        Vector3 offset = corners[index] - center;
+        offset.y = 0f;
+        if (offset.sqrMagnitude < 0.0001f)
+        {
+            offset = Vector3.forward;
+        }
+
+        float dist = offset.magnitude;
+        Vector3 dir = offset / dist;
+        float prevDist = FlatDistanceFromCenter(prev);
+        float nextDist = FlatDistanceFromCenter(next);
+        float maxDelta = Mathf.Max(0.35f, maxNeighborRadiusDelta);
+        float minAllowed = Mathf.Max(minRadius, Mathf.Min(prevDist, nextDist) - maxDelta);
+        float maxAllowed = Mathf.Max(prevDist, nextDist) + maxDelta;
+        dist = Mathf.Clamp(dist, minAllowed, Mathf.Min(maxAllowed, MaxRadius(dir)));
+        corners[index] = center + dir * dist;
+    }
+
+    void EnsureMinEdgeLength(int index)
+    {
+        int next = Wrap(index + 1);
+        Vector3 a = corners[index];
+        Vector3 b = corners[next];
+        a.y = 0f;
+        b.y = 0f;
+        Vector3 delta = b - a;
+        float len = delta.magnitude;
+        float minLen = CurrentMinEdgeLength();
+        if (len >= minLen)
+        {
+            return;
+        }
+
+        if (len < 0.0001f)
+        {
+            Vector3 split = Quaternion.Euler(0f, (360f / count) * 0.5f, 0f) * CornerRadial(index);
+            corners[index] = center + FlatDir(corners[index] - center) * Mathf.Max(minRadius, FlatDistanceFromCenter(index));
+            corners[next] = center + FlatDir(split) * Mathf.Max(minRadius, FlatDistanceFromCenter(next));
+            ClampRadiusOnly(index);
+            ClampRadiusOnly(next);
+            return;
+        }
+
+        Vector3 push = delta / len * ((minLen - len) * 0.5f);
+        corners[index] -= push;
+        corners[next] += push;
+        ClampRadiusOnly(index);
+        ClampRadiusOnly(next);
+        ConstrainAngleOrder(index, Wrap(index - 1), next);
+        ConstrainAngleOrder(next, index, Wrap(next + 1));
+    }
+
+    void KeepEdgeClearOfCenter(int index)
+    {
+        int next = Wrap(index + 1);
+        Vector3 a = corners[index];
+        Vector3 b = corners[next];
+        a.y = 0f;
+        b.y = 0f;
+        float clear = Mathf.Max(minRadius, cubeExtent + 0.35f);
+        float dist = DistancePointToSegmentXZ(center, a, b);
+        if (dist >= clear)
+        {
+            return;
+        }
+
+        Vector3 mid = (a + b) * 0.5f;
+        Vector3 outward = mid - center;
+        outward.y = 0f;
+        if (outward.sqrMagnitude < 0.0001f)
+        {
+            outward = EdgeOutward(index);
+        }
+
+        outward.Normalize();
+        float push = clear - dist + 0.05f;
+        corners[index] += outward * push;
+        corners[next] += outward * push;
+        ClampRadiusOnly(index);
+        ClampRadiusOnly(next);
+    }
+
+    float CurrentCreepHoldSeconds()
+    {
+        return Mathf.Max(0.05f, stopHoldSeconds);
+    }
+
+    float CurrentMinEdgeLength()
+    {
+        return Mathf.Max(0.75f, CompactorWidth() + minEdgeLengthPadding);
+    }
+
+    float CompactorWidth()
+    {
+        BoxCollider box = GetComponent<BoxCollider>();
+        if (box != null)
+        {
+            Vector3 scale = transform.lossyScale;
+            float x = Mathf.Abs(box.size.x * scale.x);
+            float z = Mathf.Abs(box.size.z * scale.z);
+            // Width is the shorter horizontal axis on the truck body.
+            return Mathf.Max(0.75f, Mathf.Min(x, z));
+        }
+
+        Bounds bounds = TruckBounds();
+        return Mathf.Max(0.75f, Mathf.Min(bounds.size.x, bounds.size.z));
+    }
+
+    float FlatDistanceFromCenter(int index)
+    {
+        Vector3 offset = corners[index] - center;
+        offset.y = 0f;
+        return Mathf.Max(minRadius, offset.magnitude);
     }
 
     void ClampRadiusOnly(int index)

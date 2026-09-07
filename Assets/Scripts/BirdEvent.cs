@@ -45,6 +45,7 @@ public class BirdEvent : MonoBehaviour
     float circleLeft;
     float orbitAngle;
     float fleeLeft;
+    EventsHandler eventsHandler;
 
     void Awake()
     {
@@ -57,6 +58,11 @@ public class BirdEvent : MonoBehaviour
         hornSource.playOnAwake = false;
         hornSource.spatialBlend = 0f;
         hornSource.loop = false;
+        eventsHandler = GetComponentInParent<EventsHandler>();
+        if (eventsHandler == null)
+        {
+            eventsHandler = EventsHandler.Instance;
+        }
     }
 
     void Start()
@@ -113,7 +119,8 @@ public class BirdEvent : MonoBehaviour
 
         if (phase == BirdPhase.Waiting)
         {
-            waitLeft -= Time.deltaTime;
+            float drain = eventsHandler != null ? eventsHandler.EventWaitDrainRate() : 1f;
+            waitLeft -= Time.deltaTime * drain;
             if (waitLeft <= 0f)
             {
                 SpawnFlock();
@@ -164,7 +171,14 @@ public class BirdEvent : MonoBehaviour
     void ScheduleNextBird()
     {
         phase = BirdPhase.Waiting;
-        waitLeft = Random.Range(spawnIntervalMin, spawnIntervalMax);
+        if (eventsHandler == null)
+        {
+            eventsHandler = EventsHandler.Instance;
+        }
+
+        waitLeft = eventsHandler != null
+            ? eventsHandler.NextBirdWait()
+            : Random.Range(spawnIntervalMin, spawnIntervalMax);
     }
 
     void SpawnFlock()
@@ -205,7 +219,37 @@ public class BirdEvent : MonoBehaviour
         }
 
         phase = BirdPhase.Swooping;
-        circleLeft = circleBeforeStun;
+        circleLeft = CurrentCircleSeconds();
+    }
+
+    float CurrentCircleSeconds()
+    {
+        if (eventsHandler == null)
+        {
+            eventsHandler = EventsHandler.Instance;
+        }
+
+        return eventsHandler != null ? eventsHandler.BirdCircleSeconds() : circleBeforeStun;
+    }
+
+    float CurrentSwoopSpeed()
+    {
+        if (eventsHandler == null)
+        {
+            eventsHandler = EventsHandler.Instance;
+        }
+
+        return eventsHandler != null ? eventsHandler.BirdSwoopSpeed() : swoopSpeed;
+    }
+
+    float CurrentFleeSeconds()
+    {
+        if (eventsHandler == null)
+        {
+            eventsHandler = EventsHandler.Instance;
+        }
+
+        return eventsHandler != null ? eventsHandler.BirdFleeSeconds() : 3.5f;
     }
 
     void StepSwoop(float dt)
@@ -219,7 +263,8 @@ public class BirdEvent : MonoBehaviour
             }
 
             Vector3 target = OrbitPoint(i);
-            Vector3 next = Vector3.MoveTowards(birds[i].position, target, swoopSpeed * dt);
+            float speed = CurrentSwoopSpeed();
+            Vector3 next = Vector3.MoveTowards(birds[i].position, target, speed * dt);
             Vector3 delta = next - birds[i].position;
             birds[i].position = next;
             if (delta.sqrMagnitude > 0.0001f)
@@ -240,7 +285,7 @@ public class BirdEvent : MonoBehaviour
         if (allArrived)
         {
             phase = BirdPhase.Circling;
-            circleLeft = circleBeforeStun;
+            circleLeft = CurrentCircleSeconds();
         }
     }
 
@@ -331,7 +376,7 @@ public class BirdEvent : MonoBehaviour
             fleeDirs[i] = (spread + Vector3.up * Random.Range(0.35f, 0.7f)).normalized;
         }
 
-        fleeLeft = 3.5f;
+        fleeLeft = CurrentFleeSeconds();
         phase = BirdPhase.Fleeing;
     }
 
