@@ -146,6 +146,11 @@ public class ExplosionEvent : MonoBehaviour
             return;
         }
 
+        if (!ExperienceRestart.HasStarted)
+        {
+            return;
+        }
+
         if (ExperienceRestart.IsEnded)
         {
             for (int i = 0; i < slots.Length; i++)

@@ -6,7 +6,24 @@ using UnityEngine.UI;
 
 public class ExperienceRestart : MonoBehaviour
 {
+    public static bool HasStarted { get; private set; } = true;
     public static bool IsEnded { get; private set; }
+    public static bool IsActive => HasStarted && !IsEnded;
+
+    public static void HoldUntilStart()
+    {
+        HasStarted = false;
+    }
+
+    public static void NotifyStarted()
+    {
+        if (IsEnded)
+        {
+            return;
+        }
+
+        HasStarted = true;
+    }
 
     GameObject buttonRoot;
 
@@ -47,8 +64,22 @@ public class ExperienceRestart : MonoBehaviour
         buttonRoot.SetActive(true);
     }
 
+    void Update()
+    {
+        if (!IsEnded || buttonRoot == null || !buttonRoot.activeSelf)
+        {
+            return;
+        }
+
+        if (GameInput.ConfirmPressedThisFrame)
+        {
+            Restart();
+        }
+    }
+
     void Restart()
     {
+        HasStarted = false;
         IsEnded = false;
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }

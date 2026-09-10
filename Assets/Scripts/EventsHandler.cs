@@ -97,7 +97,7 @@ public class EventsHandler : MonoBehaviour
 
     void Update()
     {
-        if (ExperienceRestart.IsEnded)
+        if (!ExperienceRestart.IsActive)
         {
             return;
         }

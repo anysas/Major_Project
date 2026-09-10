@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 public class BirdEvent : MonoBehaviour
 {
@@ -106,6 +105,11 @@ public class BirdEvent : MonoBehaviour
 
     void Update()
     {
+        if (!ExperienceRestart.HasStarted)
+        {
+            return;
+        }
+
         if (HornPressed())
         {
             Honk();
@@ -130,7 +134,7 @@ public class BirdEvent : MonoBehaviour
 
     void LateUpdate()
     {
-        if (!HasBirds() || ExperienceRestart.IsEnded)
+        if (!HasBirds() || !ExperienceRestart.IsActive)
         {
             return;
         }
@@ -151,8 +155,7 @@ public class BirdEvent : MonoBehaviour
 
     static bool HornPressed()
     {
-        Keyboard keyboard = Keyboard.current;
-        return keyboard != null && keyboard.leftArrowKey.wasPressedThisFrame;
+        return GameInput.HornPressedThisFrame;
     }
 
     void Honk()

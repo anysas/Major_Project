@@ -12,18 +12,10 @@ public class TrashCube : MonoBehaviour
         rb = GetComponent<Rigidbody>();
         rb.isKinematic = true;
         rb.useGravity = false;
-        rb.interpolation = RigidbodyInterpolation.Interpolate;
+        rb.interpolation = RigidbodyInterpolation.None;
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
         rb.constraints = RigidbodyConstraints.None;
-
-        Collider[] colliders = GetComponentsInChildren<Collider>();
-        for (int i = 0; i < colliders.Length; i++)
-        {
-            if (colliders[i] != null)
-            {
-                colliders[i].isTrigger = true;
-            }
-        }
+        rb.detectCollisions = true;
     }
 
     public void Attach(TrashPiles owner, int index)
@@ -34,18 +26,18 @@ public class TrashCube : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
-        Notify(other, true);
+        Rigidbody otherBody = CarBody(other);
+        Notify(otherBody, true);
+        if (otherBody != null && piles != null)
+        {
+            piles.PushBlock(cornerIndex, otherBody);
+        }
     }
 
     void OnTriggerStay(Collider other)
     {
-        if (piles == null)
-        {
-            return;
-        }
-
         Rigidbody otherBody = CarBody(other);
-        if (otherBody == null)
+        if (otherBody == null || piles == null)
         {
             return;
         }
@@ -55,23 +47,38 @@ public class TrashCube : MonoBehaviour
 
     void OnTriggerExit(Collider other)
     {
-        Notify(other, false);
+        Notify(CarBody(other), false);
     }
 
-    void Notify(Collider other, bool overlapping)
+    void OnCollisionStay(Collision collision)
     {
-        if (piles == null || cornerIndex < 0)
+        Rigidbody otherBody = CarBody(collision);
+        if (otherBody == null || piles == null)
         {
             return;
         }
 
-        Rigidbody otherBody = CarBody(other);
-        if (otherBody == null)
+        piles.PushBlock(cornerIndex, otherBody);
+    }
+
+    void Notify(Rigidbody otherBody, bool overlapping)
+    {
+        if (piles == null || cornerIndex < 0 || otherBody == null)
         {
             return;
         }
 
         piles.SetBlockContact(cornerIndex, overlapping);
+    }
+
+    Rigidbody CarBody(Collision collision)
+    {
+        if (collision == null || collision.collider == null)
+        {
+            return null;
+        }
+
+        return CarBody(collision.collider);
     }
 
     Rigidbody CarBody(Collider other)
