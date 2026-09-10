@@ -256,6 +256,16 @@ public class BirdEvent : MonoBehaviour
         return eventsHandler != null ? eventsHandler.BirdFleeSeconds() : 3.5f;
     }
 
+    float CurrentStunSeconds()
+    {
+        if (eventsHandler == null)
+        {
+            eventsHandler = EventsHandler.Instance;
+        }
+
+        return eventsHandler != null ? eventsHandler.BirdStunSeconds() : stunDuration;
+    }
+
     void StepSwoop(float dt)
     {
         bool allArrived = true;
@@ -319,7 +329,7 @@ public class BirdEvent : MonoBehaviour
         {
             if (truck != null)
             {
-                truck.Stun(stunDuration);
+                truck.Stun(CurrentStunSeconds());
             }
 
             BeginFlee();

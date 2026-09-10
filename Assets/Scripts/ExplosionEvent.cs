@@ -19,6 +19,7 @@ public class ExplosionEvent : MonoBehaviour
         public float flashLeft;
         public float explodeLeft;
         public float activeWarningDuration;
+        public float activeBlastRadius;
         public bool flashOn;
         public Vector3 blastPos;
         public Transform warningRoot;
@@ -164,7 +165,9 @@ public class ExplosionEvent : MonoBehaviour
             return;
         }
 
-        bool allowMulti = piles != null && piles.IsPlayAreaSpacious(spaciousRadiusForMulti);
+        bool allowMulti = piles != null
+            && piles.IsPlayAreaSpacious(spaciousRadiusForMulti)
+            && (eventsHandler == null || eventsHandler.AllowMultiExplosion());
         int activeLimit = allowMulti ? MaxSlots : 1;
 
         for (int i = 0; i < slots.Length; i++)
@@ -272,10 +275,12 @@ public class ExplosionEvent : MonoBehaviour
         }
 
         slot.blastPos.y = floorY;
+        slot.activeBlastRadius = CurrentBlastRadius();
         if (slot.warningRoot != null)
         {
+            float radius = slot.activeBlastRadius;
             slot.warningRoot.SetPositionAndRotation(slot.blastPos, Quaternion.identity);
-            slot.warningRoot.localScale = new Vector3(blastRadius * 2f, 1f, blastRadius * 2f);
+            slot.warningRoot.localScale = new Vector3(radius * 2f, 1f, radius * 2f);
             slot.warningRoot.gameObject.SetActive(true);
         }
 
@@ -292,11 +297,18 @@ public class ExplosionEvent : MonoBehaviour
     {
         point = Vector3.zero;
         float minSepSq = multiBlastSeparation * multiBlastSeparation;
-        for (int attempt = 0; attempt < 24; attempt++)
+        Vector3 truckFlat = truck != null ? truck.transform.position : Vector3.zero;
+        truckFlat.y = 0f;
+        float bias = CurrentTruckBias();
+        float bestScore = float.NegativeInfinity;
+        Vector3 bestPoint = Vector3.zero;
+        bool found = false;
+        int attempts = bias > 0.05f ? 36 : 24;
+        for (int attempt = 0; attempt < attempts; attempt++)
         {
-            if (!piles.TrySamplePlayAreaPoint(out point, edgeInset))
+            if (!piles.TrySamplePlayAreaPoint(out Vector3 candidate, edgeInset))
             {
-                return false;
+                break;
             }
 
             bool clear = true;
@@ -308,7 +320,7 @@ public class ExplosionEvent : MonoBehaviour
                     continue;
                 }
 
-                Vector3 a = point;
+                Vector3 a = candidate;
                 a.y = 0f;
                 Vector3 b = other.blastPos;
                 b.y = 0f;
@@ -319,10 +331,35 @@ public class ExplosionEvent : MonoBehaviour
                 }
             }
 
-            if (clear)
+            if (!clear)
             {
+                continue;
+            }
+
+            candidate.y = 0f;
+            float dist = Vector3.Distance(candidate, truckFlat);
+            float closeness = 1f / (1f + dist);
+            float jitter = Random.Range(0.85f, 1.15f);
+            float score = Mathf.Lerp(Random.value, closeness, bias) * jitter;
+            if (!found || score > bestScore)
+            {
+                bestScore = score;
+                bestPoint = candidate;
+                found = true;
+            }
+
+            // Early on, first legal point is fine. Later, keep hunting for a closer hit.
+            if (bias < 0.2f)
+            {
+                point = candidate;
                 return true;
             }
+        }
+
+        if (found)
+        {
+            point = bestPoint;
+            return true;
         }
 
         return piles.TrySamplePlayAreaPoint(out point, edgeInset);
@@ -336,6 +373,36 @@ public class ExplosionEvent : MonoBehaviour
         }
 
         return eventsHandler != null ? eventsHandler.ExplosionWarningSeconds() : warningDuration;
+    }
+
+    float CurrentStunSeconds()
+    {
+        if (eventsHandler == null)
+        {
+            eventsHandler = EventsHandler.Instance;
+        }
+
+        return eventsHandler != null ? eventsHandler.ExplosionStunSeconds() : stunDuration;
+    }
+
+    float CurrentBlastRadius()
+    {
+        if (eventsHandler == null)
+        {
+            eventsHandler = EventsHandler.Instance;
+        }
+
+        return eventsHandler != null ? eventsHandler.ExplosionBlastRadius() : blastRadius;
+    }
+
+    float CurrentTruckBias()
+    {
+        if (eventsHandler == null)
+        {
+            eventsHandler = EventsHandler.Instance;
+        }
+
+        return eventsHandler != null ? eventsHandler.ExplosionTruckBias() : 0f;
     }
 
     void StepWarning(BlastSlot slot, float dt)
@@ -368,9 +435,9 @@ public class ExplosionEvent : MonoBehaviour
         SpawnDebris(slot.blastPos);
         SoundManager.PlayExplosion();
 
-        if (truck != null && TruckInBlast(slot.blastPos))
+        if (truck != null && TruckInBlast(slot.blastPos, slot.activeBlastRadius))
         {
-            truck.Stun(stunDuration);
+            truck.Stun(CurrentStunSeconds());
         }
 
         slot.explodeLeft = debrisLifetime;
@@ -396,15 +463,16 @@ public class ExplosionEvent : MonoBehaviour
         SoundManager.SetExplosionWarning(warning);
     }
 
-    bool TruckInBlast(Vector3 blastPos)
+    bool TruckInBlast(Vector3 blastPos, float radius)
     {
         Vector3 flatBlast = blastPos;
         flatBlast.y = 0f;
+        float blastSize = radius > 0.01f ? radius : CurrentBlastRadius();
 
         Collider[] colliders = truck.GetComponentsInChildren<Collider>();
         if (colliders != null && colliders.Length > 0)
         {
-            float radiusSq = blastRadius * blastRadius;
+            float radiusSq = blastSize * blastSize;
             for (int i = 0; i < colliders.Length; i++)
             {
                 if (colliders[i] == null || !colliders[i].enabled)
@@ -425,7 +493,7 @@ public class ExplosionEvent : MonoBehaviour
 
         Vector3 truckPos = truck.transform.position;
         truckPos.y = 0f;
-        return (truckPos - flatBlast).sqrMagnitude <= blastRadius * blastRadius;
+        return (truckPos - flatBlast).sqrMagnitude <= blastSize * blastSize;
     }
 
     void ClearWarning(BlastSlot slot)

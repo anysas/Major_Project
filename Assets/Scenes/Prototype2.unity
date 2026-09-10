@@ -1391,7 +1391,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   targetDurationSeconds: 120
-  openingGraceSeconds: 4
+  openingGraceSeconds: 8
   intensityCurve:
     serializedVersion: 2
     m_Curve:
@@ -1399,23 +1399,23 @@ MonoBehaviour:
       time: 0
       value: 0
       inSlope: 0
-      outSlope: 3
+      outSlope: 0.7
       tangentMode: 0
       weightedMode: 0
       inWeight: 0
       outWeight: 0
     - serializedVersion: 3
-      time: 0.15
-      value: 0.4
-      inSlope: 1.5
-      outSlope: 1.5
+      time: 0.25
+      value: 0.2
+      inSlope: 0.8
+      outSlope: 0.8
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
       outWeight: 0.33333334
     - serializedVersion: 3
-      time: 0.35
-      value: 0.7
+      time: 0.5
+      value: 0.5
       inSlope: 1
       outSlope: 1
       tangentMode: 0
@@ -1423,10 +1423,10 @@ MonoBehaviour:
       inWeight: 0.33333334
       outWeight: 0.33333334
     - serializedVersion: 3
-      time: 0.6
-      value: 0.9
-      inSlope: 0.5
-      outSlope: 0.5
+      time: 0.75
+      value: 0.8
+      inSlope: 0.8
+      outSlope: 0.8
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
@@ -1434,7 +1434,7 @@ MonoBehaviour:
     - serializedVersion: 3
       time: 1
       value: 1
-      inSlope: 0.2
+      inSlope: 0.4
       outSlope: 0
       tangentMode: 0
       weightedMode: 0
@@ -1443,22 +1443,39 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  pressureExponent: 0.65
-  birdIntervalEasy: {x: 6, y: 9}
-  birdIntervalHard: {x: 0.6, y: 1.6}
-  birdCircleEasy: 3
-  birdCircleHard: 1
+  pressureExponent: 0.85
+  birdIntervalEasy: {x: 10, y: 14}
+  birdIntervalHard: {x: 3, y: 5}
+  birdCircleEasy: 3.2
+  birdCircleHard: 1.25
   birdSwoopSpeedEasy: 22
-  birdSwoopSpeedHard: 38
+  birdSwoopSpeedHard: 32
   birdFleeSecondsEasy: 3.2
-  birdFleeSecondsHard: 1.4
-  birdFirstDelay: 4
-  explosionIntervalEasy: {x: 7, y: 11}
-  explosionIntervalHard: {x: 0.8, y: 2}
-  explosionWarningEasy: 2.8
-  explosionWarningHard: 1
-  explosionFirstDelay: 6
-  waitDrainHard: 2.4
+  birdFleeSecondsHard: 1.6
+  birdStunEasy: 0.7
+  birdStunHard: 1.45
+  birdFirstDelay: 8
+  explosionIntervalEasy: {x: 12, y: 16}
+  explosionIntervalHard: {x: 4.5, y: 7}
+  explosionWarningEasy: 3
+  explosionWarningHard: 1.4
+  explosionStunEasy: 0.7
+  explosionStunHard: 1.5
+  explosionRadiusEasy: 2.9
+  explosionRadiusHard: 3.7
+  explosionTruckBiasEasy: 0.05
+  explosionTruckBiasHard: 0.8
+  multiExplosionFromPressure: 0.42
+  explosionFirstDelay: 13
+  creepSpeedEasy: 0.7
+  creepSpeedHard: 1.85
+  stallSecondsEasy: 3.4
+  stallSecondsHard: 0.65
+  finishPushEasy: 5.6
+  finishPushHard: 1.6
+  emptyCreepScaleEasy: 0.5
+  emptyCreepScaleHard: 0.9
+  waitDrainHard: 1.2
 --- !u!1 &853800100
 GameObject:
   m_ObjectHideFlags: 0

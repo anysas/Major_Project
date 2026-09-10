@@ -26,11 +26,11 @@ public class TrashPiles : MonoBehaviour
     [SerializeField, Min(0), Tooltip("How many blocks start much closer to the circle than the rest.")] int closeThreatCount = 2;
     [SerializeField, Tooltip("How much farther from the circle those closest walls start, so a falling block does not land on the border.")] float closeThreatBackOffset = 3.5f;
     [SerializeField, Tooltip("Maximum distance from the circle a block can be pushed. Still cannot leave the floor.")] float maxPushDistance = 70f;
-    [SerializeField] float creepSpeed = 0.8f;
-    [SerializeField, Range(0.05f, 1f), Tooltip("How fast a wall creeps when no trash block is sitting on it.")] float emptyWallCreepScale = 0.4f;
+    [SerializeField, Tooltip("Fallback wall crawl speed if EventsHandler is missing. Live games use EventsHandler easy→hard.")] float creepSpeed = 0.8f;
+    [SerializeField, Range(0.05f, 1f), Tooltip("Fallback empty-wall speed scale if EventsHandler is missing.")] float emptyWallCreepScale = 0.4f;
     [SerializeField, Tooltip("Delay between each wall's first drop, closest to the border first.")] float firstFallStagger = 0.35f;
     [SerializeField, Range(0f, 0.95f), Tooltip("How far along the crawl the opening trash starts (0 = far out, 1 = at the lip).")] float closestHeadStart = 0.55f;
-    [SerializeField] float stopHoldSeconds = 2.5f;
+    [SerializeField, Tooltip("Fallback stall after a wall is shoved back, if EventsHandler is missing.")] float stopHoldSeconds = 2.5f;
     [SerializeField] float pushSpeedThreshold = 0.12f;
     [SerializeField, Tooltip("How much farther the outermost starting blocks sit from the closest ones.")] float startSpread = 7f;
     [SerializeField, Tooltip("Hard cap on how far starting edges can sit from center. Also clamped to the camera view.")] float maxStartDistance = 24f;
@@ -47,7 +47,7 @@ public class TrashPiles : MonoBehaviour
     [SerializeField] float crawlSpeedMax = 1.7f;
     [SerializeField, Tooltip("How long a landed block can be pushed before the pile swallows it.")] float pushWindowMin = 2.75f;
     [SerializeField, Tooltip("Longest time a landed block waits for a push.")] float pushWindowMax = 4.25f;
-    [SerializeField, Tooltip("How much farther the wall recedes after the block is shoved into it and disappears.")] float finishPush = 3.6f;
+    [SerializeField, Tooltip("Fallback recede distance after a swallow, if EventsHandler is missing.")] float finishPush = 3.6f;
     [SerializeField, Tooltip("How quickly a receding edge eases into place. Higher is snappier.")] float edgeRecedeLerp = 6f;
     [SerializeField] float consumeDuration = 0.85f;
     [SerializeField, Tooltip("How high expired trash floats while fading out.")] float consumeRiseHeight = 2.4f;
@@ -122,9 +122,11 @@ public class TrashPiles : MonoBehaviour
     static MaterialPropertyBlock sharedFadeBlock;
     Vector3[] decorativeRing;
     float dangerZoneTimer;
+    EventsHandler eventsHandler;
 
     void Start()
     {
+        eventsHandler = EventsHandler.Instance;
         RefreshRandomTrashFromFolder();
         BuildWorld();
     }
@@ -1277,7 +1279,7 @@ public class TrashPiles : MonoBehaviour
         RefreshShoveDepth(index);
         if (shoveDepth[index] >= SwallowDepth())
         {
-            QueueRecede(index, finishPush);
+            QueueRecede(index, CurrentFinishPush());
             BeginHidden(index);
         }
     }
@@ -1723,13 +1725,13 @@ public class TrashPiles : MonoBehaviour
 
     float WallCreepSpeed(int index)
     {
+        float speed = CurrentCreepSpeed();
         if (WallHasTrash(index))
         {
-            return creepSpeed;
+            return speed;
         }
 
-        float scale = emptyWallCreepScale <= 0f ? 0.4f : emptyWallCreepScale;
-        return creepSpeed * Mathf.Clamp(scale, 0.05f, 1f);
+        return speed * CurrentEmptyCreepScale();
     }
 
     float VertexCreepSpeed(int index)
@@ -2047,7 +2049,7 @@ public class TrashPiles : MonoBehaviour
                 ? Random.Range(threatClose, threatFar)
                 : Random.Range(normalClose, normalFar);
             corners[i] = center + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * dist;
-            idleSeconds[i] = stopHoldSeconds;
+            idleSeconds[i] = 0f;
             pushedThisStep[i] = false;
             vertexMovedThisStep[i] = false;
         }
@@ -3158,9 +3160,39 @@ public class TrashPiles : MonoBehaviour
         ClampRadiusOnly(next);
     }
 
+    EventsHandler Events
+    {
+        get
+        {
+            if (eventsHandler == null)
+            {
+                eventsHandler = EventsHandler.Instance;
+            }
+
+            return eventsHandler;
+        }
+    }
+
+    float CurrentCreepSpeed()
+    {
+        return Events != null ? Events.WallCreepSpeed() : Mathf.Max(0.05f, creepSpeed);
+    }
+
+    float CurrentEmptyCreepScale()
+    {
+        float scale = Events != null ? Events.WallEmptyCreepScale() : emptyWallCreepScale;
+        return Mathf.Clamp(scale <= 0f ? 0.4f : scale, 0.05f, 1f);
+    }
+
+    float CurrentFinishPush()
+    {
+        return Events != null ? Events.WallFinishPush() : Mathf.Max(0.1f, finishPush);
+    }
+
     float CurrentCreepHoldSeconds()
     {
-        return Mathf.Max(0.05f, stopHoldSeconds);
+        float hold = Events != null ? Events.WallStallSeconds() : stopHoldSeconds;
+        return Mathf.Max(0.05f, hold);
     }
 
     float CurrentMinEdgeLength()
