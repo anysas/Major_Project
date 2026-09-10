@@ -223,6 +223,7 @@ public class BirdEvent : MonoBehaviour
 
         phase = BirdPhase.Swooping;
         circleLeft = CurrentCircleSeconds();
+        SoundManager.PlayBirdsFlyIn();
     }
 
     float CurrentCircleSeconds()

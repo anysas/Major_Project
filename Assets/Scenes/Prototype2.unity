@@ -1375,6 +1375,7 @@ Transform:
   m_Children:
   - {fileID: 850452941}
   - {fileID: 851600101}
+  - {fileID: 853800101}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &852700102
@@ -1458,6 +1459,64 @@ MonoBehaviour:
   explosionWarningHard: 1
   explosionFirstDelay: 6
   waitDrainHard: 2.4
+--- !u!1 &853800100
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 853800101}
+  - component: {fileID: 853800102}
+  m_Layer: 0
+  m_Name: SoundManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &853800101
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 853800100}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 852700101}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &853800102
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 853800100}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d1e8c4a27b5f4c9e8a0d3f6b1c7e5a92, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  music: {fileID: 8300000, guid: dbca4ebb31d4f5a47ac00a26524a8e2e, type: 3}
+  musicVolume: 0.479
+  birdsFlyIn: {fileID: 8300000, guid: 4a0308010e02be24981abe4354f6918a, type: 3}
+  armUp: {fileID: 8300000, guid: 2df16ed5af48aa74e9ed0f4e1cb5da96, type: 3}
+  explosionWarning: {fileID: 8300000, guid: 69b79b74648086e449f468e4505791ab, type: 3}
+  explosion: {fileID: 8300000, guid: 93762acbb8407e34c97f72115183099e, type: 3}
+  motor: {fileID: 8300000, guid: e13dabb45e2495345981038b1c75667d, type: 3}
+  birdsVolume: 1
+  armVolume: 0.257
+  explosionWarningVolume: 0.514
+  explosionVolume: 0.761
+  motorVolume: 0.55
+  motorMinPitch: 0.85
+  motorMaxPitch: 1.2
 --- !u!1001 &858995319
 PrefabInstance:
   m_ObjectHideFlags: 0

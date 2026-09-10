@@ -160,6 +160,7 @@ public class ExplosionEvent : MonoBehaviour
                 slots[i].waitLeft = 9999f;
             }
 
+            SoundManager.SetExplosionWarning(false);
             return;
         }
 
@@ -284,6 +285,7 @@ public class ExplosionEvent : MonoBehaviour
         slot.warningLeft = slot.activeWarningDuration;
         slot.flashLeft = CurrentFlashInterval(slot);
         slot.phase = BlastPhase.Warning;
+        RefreshWarningSound();
     }
 
     bool TrySampleBlastPoint(out Vector3 point)
@@ -364,6 +366,7 @@ public class ExplosionEvent : MonoBehaviour
     {
         ClearWarning(slot);
         SpawnDebris(slot.blastPos);
+        SoundManager.PlayExplosion();
 
         if (truck != null && TruckInBlast(slot.blastPos))
         {
@@ -372,6 +375,25 @@ public class ExplosionEvent : MonoBehaviour
 
         slot.explodeLeft = debrisLifetime;
         slot.phase = BlastPhase.Exploding;
+        RefreshWarningSound();
+    }
+
+    void RefreshWarningSound()
+    {
+        bool warning = false;
+        if (slots != null && ExperienceRestart.IsActive)
+        {
+            for (int i = 0; i < slots.Length; i++)
+            {
+                if (slots[i] != null && slots[i].phase == BlastPhase.Warning)
+                {
+                    warning = true;
+                    break;
+                }
+            }
+        }
+
+        SoundManager.SetExplosionWarning(warning);
     }
 
     bool TruckInBlast(Vector3 blastPos)

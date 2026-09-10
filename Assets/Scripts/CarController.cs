@@ -598,6 +598,7 @@ public class CarController : MonoBehaviour
         {
             SetHeadlightOn(false);
             StopStunClouds();
+            SoundManager.UpdateMotor(0f);
             return;
         }
 
@@ -614,11 +615,17 @@ public class CarController : MonoBehaviour
         UpdateArm();
         UpdateHeadlight();
         SpinWheels();
+        SoundManager.UpdateMotor(DriveVelocity.magnitude);
     }
 
     void UpdateArm()
     {
         bool raise = GameInput.ArmUpHeld;
+
+        if (raise && !IsArmRaised)
+        {
+            SoundManager.PlayArmUp();
+        }
 
         IsArmRaised = raise;
 
