@@ -16,6 +16,7 @@ public class BirdEvent : MonoBehaviour
     [SerializeField] GameObject birdPrefab;
     [SerializeField] CarController truck;
     [SerializeField, Tooltip("Drag a short horn clip here.")] AudioClip hornClip;
+    [SerializeField, Range(0f, 1f), Tooltip("Horn playback volume.")] float hornVolume = 1f;
 
     [Header("Timing")]
     [SerializeField, Tooltip("Shortest wait before a bird appears.")] float spawnIntervalMin = 8f;
@@ -57,6 +58,7 @@ public class BirdEvent : MonoBehaviour
         hornSource.playOnAwake = false;
         hornSource.spatialBlend = 0f;
         hornSource.loop = false;
+        hornSource.volume = hornVolume;
         eventsHandler = GetComponentInParent<EventsHandler>();
         if (eventsHandler == null)
         {
@@ -95,6 +97,7 @@ public class BirdEvent : MonoBehaviour
         circleRadius = Mathf.Max(0.4f, circleRadius);
         circleSpeed = Mathf.Max(10f, circleSpeed);
         fleeSpeed = Mathf.Max(1f, fleeSpeed);
+        hornVolume = Mathf.Clamp01(hornVolume);
         CacheBirdModelOffset();
     }
 
@@ -162,7 +165,7 @@ public class BirdEvent : MonoBehaviour
     {
         if (hornClip != null && hornSource != null)
         {
-            hornSource.PlayOneShot(hornClip);
+            hornSource.PlayOneShot(hornClip, hornVolume);
         }
 
         if (phase == BirdPhase.Swooping || phase == BirdPhase.Circling)

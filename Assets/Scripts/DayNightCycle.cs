@@ -9,11 +9,11 @@ public class DayNightCycle : MonoBehaviour
     [SerializeField, Min(1f)] float nightSeconds = 10f;
     [SerializeField, Min(0.05f)] float fadeSeconds = 3.5f;
     [SerializeField] Color nightSunColor = new Color(0.62f, 0.32f, 0.92f, 1f);
-    [SerializeField] float nightSunIntensity = 0.34f;
-    [SerializeField] float nightAmbient = 0.4f;
-    [SerializeField] float nightSkyExposure = 0.52f;
-    [SerializeField] Color nightSkyTint = new Color(0.38f, 0.16f, 0.55f, 1f);
-    [SerializeField] float nightPostExposure = -0.28f;
+    [SerializeField] float nightSunIntensity = 0.46f;
+    [SerializeField] float nightAmbient = 0.55f;
+    [SerializeField] float nightSkyExposure = 0.7f;
+    [SerializeField] Color nightSkyTint = new Color(0.48f, 0.26f, 0.65f, 1f);
+    [SerializeField] float nightPostExposure = -0.1f;
 
     Color daySunColor;
     float daySunIntensity;

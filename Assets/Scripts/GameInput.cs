@@ -43,17 +43,26 @@ public static class GameInput
         get
         {
             InputAction action = Actions.Truck.Move;
-            return action != null ? action.ReadValue<Vector2>() : Vector2.zero;
+            Vector2 pad = action != null ? action.ReadValue<Vector2>() : Vector2.zero;
+            Vector2 combined = pad + ArduinoController.Move;
+            if (combined.sqrMagnitude > 1f)
+            {
+                combined.Normalize();
+            }
+
+            return combined;
         }
     }
 
-    public static bool ArmUpHeld => ActionHeld(Actions.Truck.ArmUp);
+    public static bool ArmUpHeld => ActionHeld(Actions.Truck.ArmUp) || ArduinoController.ArmUpHeld;
 
-    public static bool HeadlightHeld => ActionHeld(Actions.Truck.Headlight);
+    public static bool HeadlightHeld => ActionHeld(Actions.Truck.Headlight) || ArduinoController.HeadlightHeld;
 
-    public static bool HornPressedThisFrame => ActionPressedThisFrame(Actions.Truck.Horn);
+    public static bool HornPressedThisFrame =>
+        ActionPressedThisFrame(Actions.Truck.Horn) || ArduinoController.HornPressedThisFrame;
 
-    public static bool ConfirmPressedThisFrame => ActionPressedThisFrame(Actions.Truck.Confirm);
+    public static bool ConfirmPressedThisFrame =>
+        ActionPressedThisFrame(Actions.Truck.Confirm) || ArduinoController.ConfirmPressedThisFrame;
 
     static bool ActionHeld(InputAction action)
     {
