@@ -1427,6 +1427,7 @@ MonoBehaviour:
   truck: {fileID: 1847372040}
   hornClip: {fileID: 8300000, guid: 396cdda43bebc384a97adce557abe547, type: 3}
   hornVolume: 0.36
+  birdScale: 1.53
   spawnIntervalMin: 6.59
   spawnIntervalMax: 14.2
   circleBeforeStun: 3
@@ -1435,11 +1436,11 @@ MonoBehaviour:
   spawnDistanceMax: 40
   spawnHeightMin: 17.7
   spawnHeightMax: 18
-  swoopSpeed: 22
+  swoopSpeed: 28
   circleHeight: 6.5
   circleRadius: 7.29
-  circleSpeed: 212.8
-  fleeSpeed: 32
+  circleSpeed: 230
+  fleeSpeed: 36
 --- !u!1 &851600100
 GameObject:
   m_ObjectHideFlags: 0
@@ -1493,13 +1494,16 @@ MonoBehaviour:
   flashIntervalStart: 0.45
   flashIntervalEnd: 0.06
   stunDuration: 1
-  blastRadius: 3.2
+  blastRadius: 4.6
+  radiusFullAtPlayRadius: 16
+  radiusTightAtPlayRadius: 8.5
+  tightRadiusScale: 0.78
   edgeInset: 1.25
   warningColor: {r: 1, g: 0.15, b: 0.08, a: 0.55}
   debrisCount: 28
   debrisLifetime: 1.6
   spaciousRadiusForMulti: 15
-  multiBlastSeparation: 6
+  multiBlastSeparation: 8
 --- !u!1 &852700100
 GameObject:
   m_ObjectHideFlags: 0
@@ -1605,8 +1609,8 @@ MonoBehaviour:
   birdIntervalHard: {x: 3, y: 5}
   birdCircleEasy: 3.2
   birdCircleHard: 1.25
-  birdSwoopSpeedEasy: 22
-  birdSwoopSpeedHard: 32
+  birdSwoopSpeedEasy: 28
+  birdSwoopSpeedHard: 42
   birdFleeSecondsEasy: 3.2
   birdFleeSecondsHard: 1.6
   birdStunEasy: 0.7
@@ -1618,18 +1622,21 @@ MonoBehaviour:
   explosionWarningHard: 1.4
   explosionStunEasy: 0.7
   explosionStunHard: 1.5
-  explosionRadiusEasy: 2.9
-  explosionRadiusHard: 3.7
+  explosionRadiusEasy: 7.78
+  explosionRadiusHard: 7.78
   explosionTruckBiasEasy: 0.05
   explosionTruckBiasHard: 0.8
   multiExplosionFromPressure: 0.42
   explosionFirstDelay: 13
   creepSpeedEasy: 0.7
-  creepSpeedHard: 1.85
+  creepSpeedHard: 1.65
+  creepBoostFromRadius: 16
+  creepBoostAtRadius: 24
+  creepAreaBoost: 1.85
   stallSecondsEasy: 3.4
   stallSecondsHard: 0.65
-  finishPushEasy: 5.6
-  finishPushHard: 1.6
+  finishPushEasy: 7.28
+  finishPushHard: 4.37
   emptyCreepScaleEasy: 0.5
   emptyCreepScaleHard: 0.9
   waitDrainHard: 1.2
@@ -1679,12 +1686,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   music: {fileID: 8300000, guid: dbca4ebb31d4f5a47ac00a26524a8e2e, type: 3}
   musicVolume: 0.479
-  birdsFlyIn: {fileID: 8300000, guid: 0954bf21bc9f6e447b45fca79b7039eb, type: 3}
+  birdsFlyIn: {fileID: 8300000, guid: bfe2b8b2fe6efe249b469f8fde8e5a01, type: 3}
   armUp: {fileID: 8300000, guid: 2df16ed5af48aa74e9ed0f4e1cb5da96, type: 3}
   explosionWarning: {fileID: 8300000, guid: 69b79b74648086e449f468e4505791ab, type: 3}
   explosion: {fileID: 8300000, guid: 93762acbb8407e34c97f72115183099e, type: 3}
   motor: {fileID: 8300000, guid: e13dabb45e2495345981038b1c75667d, type: 3}
-  birdsVolume: 1
+  birdsVolume: 0.982
   armVolume: 0.257
   explosionWarningVolume: 0.514
   explosionVolume: 0.761
@@ -3498,10 +3505,10 @@ MonoBehaviour:
   armRaisedX: -145
   armRotateSpeed: 166.9
   loweredSpeedFactor: 0.6
-  raisedSpeedFactor: 1.5
+  raisedSpeedFactor: 1.7
   headlightRange: 36
-  headlightAngle: 88
-  headlightIntensity: 150
+  headlightAngle: 130
+  headlightIntensity: 500
   stunCloudHeight: 0.2
   stunCloudColor: {r: 0.96, g: 0.98, b: 1, a: 0.72}
 --- !u!114 &1847372041
@@ -3545,7 +3552,7 @@ MonoBehaviour:
   creepSpeed: 1
   emptyWallCreepScale: 0.7
   firstFallStagger: 0.35
-  closestHeadStart: 0.18
+  closestHeadStart: 0.126
   stopHoldSeconds: 2.5
   pushSpeedThreshold: 0.12
   startSpread: 7
@@ -3561,16 +3568,21 @@ MonoBehaviour:
   pileMaterial: {fileID: 2100000, guid: a8c3d1f4e6b2497a9c0d5e2f1a3b8c47, type: 2}
   pileColor: {r: 0.7264151, g: 0.6816474, b: 0.41460484, a: 1}
   coverPadding: 70
-  crawlSpeedMin: 7.4
-  crawlSpeedMax: 9.24
-  pushWindowMin: 2.75
-  pushWindowMax: 4.25
-  finishPush: 3.6
+  crawlSpeedMin: 10.5
+  crawlSpeedMax: 11.4
+  pushWindowMin: 4.06
+  pushWindowMax: 5.29
+  finishPush: 4.3
   edgeRecedeLerp: 6
   consumeDuration: 0.85
   consumeRiseHeight: 2.4
   respawnDelayMin: 0.5
   respawnDelayMax: 1.25
+  targetLiveTrash: 5
+  maxIncomingTrash: 3
+  spawnInterval: 0.45
+  spawnRestAfterSwallow: 0.12
+  respawnHeadStart: 0.42
   fallDuration: 0.45
   decorativePiles: {fileID: 1860440729}
   decorativePileInset: 0.75

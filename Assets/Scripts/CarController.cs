@@ -17,8 +17,8 @@ public class CarController : MonoBehaviour
     [SerializeField] float loweredSpeedFactor = 0.7f;
     [SerializeField] float raisedSpeedFactor = 1.5f;
     [SerializeField] float headlightRange = 36f;
-    [SerializeField] float headlightAngle = 88f;
-    [SerializeField] float headlightIntensity = 150f;
+    [SerializeField] float headlightAngle = 130f;
+    [SerializeField] float headlightIntensity = 500f;
     [SerializeField] float stunCloudHeight = 0.2f;
     [SerializeField] Color stunCloudColor = new Color(0.96f, 0.98f, 1f, 0.72f);
 
@@ -38,6 +38,31 @@ public class CarController : MonoBehaviour
     Material stunCloudMaterial;
     Texture2D stunCloudTexture;
 
+    enum ArmState
+    {
+        Mounted,
+        Flying,
+        Fading
+    }
+
+    ArmState armState = ArmState.Mounted;
+    Transform armMountParent;
+    Vector3 armMountLocalPosition;
+    Vector3 armMountLocalScale;
+    Collider[] armColliders;
+    bool[] armColliderWasEnabled;
+    ArmFadeSlot[] armFades;
+    Vector3 flyVelocity;
+    Vector3 flySpin;
+    float flyElapsed;
+    float fadeElapsed;
+
+    [SerializeField] float armFlySpeed = 8f;
+    [SerializeField] float armFlyUp = 8f;
+    [SerializeField] float armFlyGravity = 9f;
+    [SerializeField] float armReturnDelay = 1.6f;
+    [SerializeField] float armFadeSeconds = 1.05f;
+
     public Vector3 DriveVelocity { get; private set; }
 
     public bool IsArmRaised { get; private set; }
@@ -55,6 +80,44 @@ public class CarController : MonoBehaviour
         {
             PlayStunClouds();
         }
+    }
+
+    public void BlastOffArm(Vector3 blastOrigin)
+    {
+        if (arm == null || armState == ArmState.Flying || !ExperienceRestart.IsActive)
+        {
+            return;
+        }
+
+        if (armState == ArmState.Fading)
+        {
+            RestoreArmMaterials();
+        }
+
+        Vector3 away = arm.position - blastOrigin;
+        away.y = 0f;
+        if (away.sqrMagnitude < 0.25f)
+        {
+            away = transform.position - blastOrigin;
+            away.y = 0f;
+        }
+
+        if (away.sqrMagnitude < 0.01f)
+        {
+            away = transform.right;
+        }
+
+        away.Normalize();
+        away = Quaternion.AngleAxis(Random.Range(-28f, 28f), Vector3.up) * away;
+        flyVelocity = away * Mathf.Max(0.5f, armFlySpeed) + Vector3.up * Mathf.Max(0.5f, armFlyUp);
+        flySpin = new Vector3(
+            Random.Range(-260f, 260f),
+            Random.Range(-180f, 180f),
+            Random.Range(-260f, 260f));
+        flyElapsed = 0f;
+        SetArmCollidersEnabled(false);
+        arm.SetParent(null, true);
+        armState = ArmState.Flying;
     }
 
     void Awake()
@@ -85,6 +148,8 @@ public class CarController : MonoBehaviour
         {
             Destroy(stunCloudTexture);
         }
+
+        DestroyArmFadeMaterials();
     }
 
     void CollectArm()
@@ -111,6 +176,15 @@ public class CarController : MonoBehaviour
         arm.localRotation = Quaternion.Euler(armRestX, euler.y, euler.z);
         armRestLocalRotation = arm.localRotation;
         armX = armRestX;
+        armMountParent = arm.parent;
+        armMountLocalPosition = arm.localPosition;
+        armMountLocalScale = arm.localScale;
+        armColliders = arm.GetComponentsInChildren<Collider>(true);
+        armColliderWasEnabled = new bool[armColliders.Length];
+        for (int i = 0; i < armColliders.Length; i++)
+        {
+            armColliderWasEnabled[i] = armColliders[i] != null && armColliders[i].enabled;
+        }
     }
 
     void CollectHeadlight()
@@ -190,7 +264,7 @@ public class CarController : MonoBehaviour
             return;
         }
 
-        Color emission = on ? new Color(4f, 3.7f, 2.8f, 1f) : Color.black;
+        Color emission = on ? new Color(8f, 7.4f, 5.6f, 1f) : Color.black;
         for (int i = 0; i < headlightRenderers.Length; i++)
         {
             Renderer renderer = headlightRenderers[i];
@@ -279,7 +353,7 @@ public class CarController : MonoBehaviour
         main.duration = 1f;
         main.startLifetime = new ParticleSystem.MinMaxCurve(1.15f, 1.9f);
         main.startSpeed = new ParticleSystem.MinMaxCurve(0.45f, 0.95f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.45f, 0.9f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.7f, 1.35f);
         main.startColor = stunCloudColor;
         main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
         main.simulationSpace = ParticleSystemSimulationSpace.World;
@@ -323,9 +397,9 @@ public class CarController : MonoBehaviour
         ParticleSystem.SizeOverLifetimeModule sizeOverLifetime = particles.sizeOverLifetime;
         sizeOverLifetime.enabled = true;
         AnimationCurve grow = new AnimationCurve(
-            new Keyframe(0f, 0.35f),
-            new Keyframe(0.3f, 0.95f),
-            new Keyframe(1f, 1.4f));
+            new Keyframe(0f, 0.4f),
+            new Keyframe(0.3f, 1.1f),
+            new Keyframe(1f, 1.75f));
         sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, grow);
 
         ParticleSystem.RotationOverLifetimeModule spin = particles.rotationOverLifetime;
@@ -353,7 +427,7 @@ public class CarController : MonoBehaviour
         renderer.receiveShadows = false;
         renderer.lengthScale = 1f;
         renderer.minParticleSize = 0.02f;
-        renderer.maxParticleSize = 0.45f;
+        renderer.maxParticleSize = 0.75f;
     }
 
     Vector3 PipeMouthLocalPosition(Transform pipe)
@@ -600,6 +674,7 @@ public class CarController : MonoBehaviour
             SetHeadlightOn(false);
             StopStunClouds();
             SoundManager.UpdateMotor(0f);
+            StepDetachedArm();
             return;
         }
 
@@ -635,10 +710,321 @@ public class CarController : MonoBehaviour
             return;
         }
 
+        if (armState == ArmState.Flying)
+        {
+            StepFlyingArm();
+            return;
+        }
+
         float target = raise ? armRaisedX : armRestX;
         armX = Mathf.MoveTowards(armX, target, armRotateSpeed * Time.deltaTime);
+        ApplyArmRotation();
+
+        if (armState == ArmState.Fading)
+        {
+            StepArmFade();
+        }
+    }
+
+    void ApplyArmRotation()
+    {
         float pitchFromRest = armX - armRestX;
         arm.localRotation = armRestLocalRotation * Quaternion.Euler(pitchFromRest, 0f, 0f);
+    }
+
+    void StepDetachedArm()
+    {
+        if (arm == null)
+        {
+            return;
+        }
+
+        if (armState == ArmState.Flying)
+        {
+            StepFlyingArm();
+        }
+        else if (armState == ArmState.Fading)
+        {
+            StepArmFade();
+        }
+    }
+
+    void StepFlyingArm()
+    {
+        float dt = Time.deltaTime;
+        flyElapsed += dt;
+        if (flyElapsed < 4f)
+        {
+            flyVelocity += Vector3.down * Mathf.Max(0f, armFlyGravity) * dt;
+            arm.position += flyVelocity * dt;
+            arm.Rotate(flySpin * dt, Space.World);
+        }
+
+        if (flyElapsed >= Mathf.Max(0.2f, armReturnDelay) && ExperienceRestart.IsActive)
+        {
+            BeginArmReturn();
+        }
+    }
+
+    void BeginArmReturn()
+    {
+        Transform parent = armMountParent != null ? armMountParent : transform;
+        arm.SetParent(parent, false);
+        arm.localPosition = armMountLocalPosition;
+        arm.localScale = armMountLocalScale;
+        ApplyArmRotation();
+        EnsureArmFadeMaterials();
+        AssignArmFadeMaterials();
+        SetArmAlpha(0f);
+        SetArmCollidersEnabled(true);
+        fadeElapsed = 0f;
+        armState = ArmState.Fading;
+    }
+
+    void StepArmFade()
+    {
+        float duration = Mathf.Max(0.05f, armFadeSeconds);
+        fadeElapsed += Time.deltaTime;
+        float t = Mathf.Clamp01(fadeElapsed / duration);
+        SetArmAlpha(Mathf.SmoothStep(0f, 1f, t));
+        if (t >= 1f)
+        {
+            RestoreArmMaterials();
+            armState = ArmState.Mounted;
+        }
+    }
+
+    void SetArmCollidersEnabled(bool enabled)
+    {
+        if (armColliders == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < armColliders.Length; i++)
+        {
+            Collider collider = armColliders[i];
+            if (collider == null)
+            {
+                continue;
+            }
+
+            if (enabled)
+            {
+                collider.enabled = armColliderWasEnabled != null && i < armColliderWasEnabled.Length
+                    ? armColliderWasEnabled[i]
+                    : true;
+            }
+            else
+            {
+                collider.enabled = false;
+            }
+        }
+    }
+
+    void EnsureArmFadeMaterials()
+    {
+        if (armFades != null || arm == null)
+        {
+            return;
+        }
+
+        Renderer[] renderers = arm.GetComponentsInChildren<Renderer>(true);
+        armFades = new ArmFadeSlot[renderers.Length];
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            ArmFadeSlot slot = new ArmFadeSlot();
+            slot.renderer = renderer;
+            if (renderer == null)
+            {
+                armFades[i] = slot;
+                continue;
+            }
+
+            Material[] shared = renderer.sharedMaterials;
+            slot.shared = shared;
+            slot.runtime = new Material[shared.Length];
+            slot.colors = new Color[shared.Length];
+            for (int m = 0; m < shared.Length; m++)
+            {
+                if (shared[m] == null)
+                {
+                    continue;
+                }
+
+                Material copy = new Material(shared[m]);
+                copy.name = shared[m].name + " ArmFade";
+                MakeArmTransparent(copy);
+                slot.colors[m] = ReadMaterialColor(copy);
+                slot.runtime[m] = copy;
+            }
+
+            armFades[i] = slot;
+        }
+    }
+
+    void AssignArmFadeMaterials()
+    {
+        if (armFades == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < armFades.Length; i++)
+        {
+            ArmFadeSlot slot = armFades[i];
+            if (slot == null || slot.renderer == null || slot.runtime == null)
+            {
+                continue;
+            }
+
+            slot.renderer.sharedMaterials = slot.runtime;
+        }
+    }
+
+    void SetArmAlpha(float alpha)
+    {
+        if (armFades == null)
+        {
+            return;
+        }
+
+        float clamped = Mathf.Clamp01(alpha);
+        for (int i = 0; i < armFades.Length; i++)
+        {
+            ArmFadeSlot slot = armFades[i];
+            if (slot == null || slot.runtime == null || slot.colors == null)
+            {
+                continue;
+            }
+
+            int count = Mathf.Min(slot.runtime.Length, slot.colors.Length);
+            for (int m = 0; m < count; m++)
+            {
+                Material material = slot.runtime[m];
+                if (material == null)
+                {
+                    continue;
+                }
+
+                Color color = slot.colors[m];
+                color.a *= clamped;
+                WriteMaterialColor(material, color);
+            }
+        }
+    }
+
+    void RestoreArmMaterials()
+    {
+        if (armFades == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < armFades.Length; i++)
+        {
+            ArmFadeSlot slot = armFades[i];
+            if (slot == null || slot.renderer == null || slot.shared == null)
+            {
+                continue;
+            }
+
+            slot.renderer.sharedMaterials = slot.shared;
+        }
+    }
+
+    void DestroyArmFadeMaterials()
+    {
+        if (armFades == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < armFades.Length; i++)
+        {
+            ArmFadeSlot slot = armFades[i];
+            if (slot == null || slot.runtime == null)
+            {
+                continue;
+            }
+
+            for (int m = 0; m < slot.runtime.Length; m++)
+            {
+                if (slot.runtime[m] != null)
+                {
+                    Destroy(slot.runtime[m]);
+                }
+            }
+        }
+
+        armFades = null;
+    }
+
+    static void MakeArmTransparent(Material material)
+    {
+        if (material.HasProperty("_Surface"))
+        {
+            material.SetFloat("_Surface", 1f);
+            material.SetFloat("_Blend", 0f);
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_SrcBlendAlpha", (float)UnityEngine.Rendering.BlendMode.One);
+            material.SetFloat("_DstBlendAlpha", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_ZWrite", 0f);
+            if (material.HasProperty("_AlphaClip"))
+            {
+                material.SetFloat("_AlphaClip", 0f);
+            }
+
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.DisableKeyword("_SURFACE_TYPE_OPAQUE");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            material.DisableKeyword("_ALPHATEST_ON");
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            return;
+        }
+
+        material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        material.SetInt("_ZWrite", 0);
+        material.DisableKeyword("_ALPHATEST_ON");
+        material.EnableKeyword("_ALPHABLEND_ON");
+        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+    }
+
+    static Color ReadMaterialColor(Material material)
+    {
+        if (material.HasProperty("_BaseColor"))
+        {
+            return material.GetColor("_BaseColor");
+        }
+
+        return material.color;
+    }
+
+    static void WriteMaterialColor(Material material, Color color)
+    {
+        material.color = color;
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", color);
+        }
+
+        if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", color);
+        }
+    }
+
+    class ArmFadeSlot
+    {
+        public Renderer renderer;
+        public Material[] shared;
+        public Material[] runtime;
+        public Color[] colors;
     }
 
     void SpinWheels()

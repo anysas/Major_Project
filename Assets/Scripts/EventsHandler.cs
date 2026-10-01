@@ -28,8 +28,8 @@ public class EventsHandler : MonoBehaviour
     [SerializeField] Vector2 birdIntervalHard = new Vector2(3f, 5f);
     [SerializeField] float birdCircleEasy = 3.2f;
     [SerializeField] float birdCircleHard = 1.25f;
-    [SerializeField] float birdSwoopSpeedEasy = 22f;
-    [SerializeField] float birdSwoopSpeedHard = 32f;
+    [SerializeField] float birdSwoopSpeedEasy = 28f;
+    [SerializeField] float birdSwoopSpeedHard = 42f;
     [SerializeField] float birdFleeSecondsEasy = 3.2f;
     [SerializeField] float birdFleeSecondsHard = 1.6f;
     [SerializeField] float birdStunEasy = 0.7f;
@@ -43,8 +43,9 @@ public class EventsHandler : MonoBehaviour
     [SerializeField] float explosionWarningHard = 1.4f;
     [SerializeField] float explosionStunEasy = 0.7f;
     [SerializeField] float explosionStunHard = 1.5f;
-    [SerializeField] float explosionRadiusEasy = 2.9f;
-    [SerializeField] float explosionRadiusHard = 3.7f;
+    [SerializeField, Tooltip("Blast size in an open arena. Shrinks slightly as the walls close in.")]
+    float explosionRadiusEasy = 4.4f;
+    [SerializeField] float explosionRadiusHard = 5.4f;
     [SerializeField, Range(0f, 1f), Tooltip("How strongly warnings hug the truck. 0 = anywhere in the arena.")]
     float explosionTruckBiasEasy = 0.05f;
     [SerializeField, Range(0f, 1f)] float explosionTruckBiasHard = 0.8f;
@@ -55,10 +56,13 @@ public class EventsHandler : MonoBehaviour
     [Header("Walls (easy → hard)")]
     [SerializeField, Tooltip("How fast the pile edges crawl inward.")] float creepSpeedEasy = 0.7f;
     [SerializeField] float creepSpeedHard = 1.85f;
+    [SerializeField, Tooltip("No extra creep below this play-area radius.")] float creepBoostFromRadius = 16f;
+    [SerializeField, Tooltip("Full extra creep once a wall is this far out.")] float creepBoostAtRadius = 24f;
+    [SerializeField, Tooltip("How much faster a wide-open wall creeps versus a tight one.")] float creepAreaBoost = 1.85f;
     [SerializeField, Tooltip("How long a wall waits after being shoved back before it creeps again.")] float stallSecondsEasy = 3.4f;
     [SerializeField] float stallSecondsHard = 0.65f;
-    [SerializeField, Tooltip("How far a swallowed block recedes its wall. Bigger early, stingier late.")] float finishPushEasy = 5.6f;
-    [SerializeField] float finishPushHard = 1.6f;
+    [SerializeField, Tooltip("How far a swallowed block recedes its wall. Bigger early, stingier late.")] float finishPushEasy = 6.8f;
+    [SerializeField] float finishPushHard = 2.1f;
     [SerializeField, Range(0.05f, 1f), Tooltip("Empty edges creep this fraction of the current wall speed.")]
     float emptyCreepScaleEasy = 0.5f;
     [SerializeField, Range(0.05f, 1f)] float emptyCreepScaleHard = 0.9f;
@@ -117,7 +121,7 @@ public class EventsHandler : MonoBehaviour
         explosionStunEasy = Mathf.Max(0.05f, explosionStunEasy);
         explosionStunHard = Mathf.Max(explosionStunEasy, explosionStunHard);
         explosionRadiusEasy = Mathf.Max(0.5f, explosionRadiusEasy);
-        explosionRadiusHard = Mathf.Max(explosionRadiusEasy, explosionRadiusHard);
+        explosionRadiusHard = Mathf.Max(0.5f, explosionRadiusHard);
         explosionTruckBiasEasy = Mathf.Clamp01(explosionTruckBiasEasy);
         explosionTruckBiasHard = Mathf.Clamp01(explosionTruckBiasHard);
         multiExplosionFromPressure = Mathf.Clamp01(multiExplosionFromPressure);
@@ -125,6 +129,9 @@ public class EventsHandler : MonoBehaviour
         explosionFirstDelay = Mathf.Max(0f, explosionFirstDelay);
         creepSpeedEasy = Mathf.Max(0.05f, creepSpeedEasy);
         creepSpeedHard = Mathf.Max(creepSpeedEasy, creepSpeedHard);
+        creepBoostFromRadius = Mathf.Max(4f, creepBoostFromRadius);
+        creepBoostAtRadius = Mathf.Max(creepBoostFromRadius + 0.5f, creepBoostAtRadius);
+        creepAreaBoost = Mathf.Max(1f, creepAreaBoost);
         stallSecondsEasy = Mathf.Max(0.05f, stallSecondsEasy);
         stallSecondsHard = Mathf.Clamp(stallSecondsHard, 0.05f, stallSecondsEasy);
         finishPushEasy = Mathf.Max(0.25f, finishPushEasy);
@@ -221,7 +228,7 @@ public class EventsHandler : MonoBehaviour
 
     public float ExplosionBlastRadius()
     {
-        return Mathf.Lerp(explosionRadiusEasy, explosionRadiusHard, Pressure);
+        return Mathf.Max(0.5f, explosionRadiusEasy, explosionRadiusHard);
     }
 
     public float ExplosionTruckBias()
@@ -236,7 +243,14 @@ public class EventsHandler : MonoBehaviour
 
     public float WallCreepSpeed()
     {
-        return Mathf.Lerp(creepSpeedEasy, creepSpeedHard, Pressure);
+        return WallCreepSpeed(creepBoostFromRadius);
+    }
+
+    public float WallCreepSpeed(float playRadius)
+    {
+        float speed = Mathf.Lerp(creepSpeedEasy, creepSpeedHard, Pressure);
+        float t = Mathf.InverseLerp(creepBoostFromRadius, creepBoostAtRadius, playRadius);
+        return speed * Mathf.Lerp(1f, creepAreaBoost, Mathf.Clamp01(t));
     }
 
     public float WallStallSeconds()

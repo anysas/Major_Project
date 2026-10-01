@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class ExplosionEvent : MonoBehaviour
 {
-    const int MaxSlots = 2;
+    const int MaxSlots = 1;
 
     enum BlastPhase
     {
@@ -41,13 +41,16 @@ public class ExplosionEvent : MonoBehaviour
     [SerializeField, Tooltip("How long the truck stays stunned if caught in the blast.")] float stunDuration = 1f;
 
     [Header("Blast")]
-    [SerializeField, Tooltip("Radius of the warning circle and stun check.")] float blastRadius = 3.2f;
+    [SerializeField, Tooltip("Radius of the warning circle and stun check.")] float blastRadius = 4.6f;
+    [SerializeField, Tooltip("Use the full blast size while the play area is at least this wide.")] float radiusFullAtPlayRadius = 16f;
+    [SerializeField, Tooltip("Shrink toward the tight scale once the play area is this small.")] float radiusTightAtPlayRadius = 8.5f;
+    [SerializeField, Range(0.5f, 1f), Tooltip("How large the blast stays when the driveable area is tight.")] float tightRadiusScale = 0.78f;
     [SerializeField, Tooltip("Keep warnings this far inside the pile walls.")] float edgeInset = 1.25f;
     [SerializeField] Color warningColor = new Color(1f, 0.15f, 0.08f, 0.55f);
     [SerializeField] int debrisCount = 28;
     [SerializeField] float debrisLifetime = 1.6f;
     [SerializeField, Tooltip("If the pile's average radius is at least this, a second explosion can run at the same time.")] float spaciousRadiusForMulti = 15f;
-    [SerializeField, Tooltip("Minimum distance between simultaneous explosion markers.")] float multiBlastSeparation = 6f;
+    [SerializeField, Tooltip("Minimum distance between simultaneous explosion markers.")] float multiBlastSeparation = 8f;
 
     BlastSlot[] slots;
     Material debrisMaterial;
@@ -89,10 +92,6 @@ public class ExplosionEvent : MonoBehaviour
             BuildWarningDisc(slots[i], i);
             ScheduleNext(slots[i], i == 0);
         }
-
-        // Second slot starts dormant until the arena is spacious.
-        slots[1].waitLeft = 9999f;
-        slots[1].phase = BlastPhase.Waiting;
     }
 
     void OnValidate()
@@ -104,6 +103,9 @@ public class ExplosionEvent : MonoBehaviour
         flashIntervalEnd = Mathf.Clamp(flashIntervalEnd, 0.02f, flashIntervalStart);
         stunDuration = Mathf.Max(0.05f, stunDuration);
         blastRadius = Mathf.Max(0.5f, blastRadius);
+        radiusFullAtPlayRadius = Mathf.Max(4f, radiusFullAtPlayRadius);
+        radiusTightAtPlayRadius = Mathf.Clamp(radiusTightAtPlayRadius, 3f, radiusFullAtPlayRadius - 0.25f);
+        tightRadiusScale = Mathf.Clamp(tightRadiusScale, 0.5f, 1f);
         edgeInset = Mathf.Max(0f, edgeInset);
         debrisCount = Mathf.Max(4, debrisCount);
         debrisLifetime = Mathf.Max(0.2f, debrisLifetime);
@@ -165,31 +167,9 @@ public class ExplosionEvent : MonoBehaviour
             return;
         }
 
-        bool allowMulti = piles != null
-            && piles.IsPlayAreaSpacious(spaciousRadiusForMulti)
-            && (eventsHandler == null || eventsHandler.AllowMultiExplosion());
-        int activeLimit = allowMulti ? MaxSlots : 1;
-
         for (int i = 0; i < slots.Length; i++)
         {
-            BlastSlot slot = slots[i];
-            if (i >= activeLimit)
-            {
-                if (slot.phase == BlastPhase.Waiting)
-                {
-                    slot.waitLeft = 9999f;
-                }
-
-                continue;
-            }
-
-            if (i > 0 && slot.phase == BlastPhase.Waiting && slot.waitLeft > 100f)
-            {
-                // Wake the extra slot once the arena opens up.
-                ScheduleNext(slot, false);
-            }
-
-            StepSlot(slot, Time.deltaTime);
+            StepSlot(slots[i], Time.deltaTime);
         }
     }
 
@@ -392,7 +372,15 @@ public class ExplosionEvent : MonoBehaviour
             eventsHandler = EventsHandler.Instance;
         }
 
-        return eventsHandler != null ? eventsHandler.ExplosionBlastRadius() : blastRadius;
+        float full = eventsHandler != null ? eventsHandler.ExplosionBlastRadius() : blastRadius;
+        if (piles == null)
+        {
+            return full;
+        }
+
+        float area = piles.AverageCornerRadius();
+        float t = Mathf.InverseLerp(radiusFullAtPlayRadius, radiusTightAtPlayRadius, area);
+        return Mathf.Lerp(full, full * tightRadiusScale, Mathf.Clamp01(t));
     }
 
     float CurrentTruckBias()
@@ -438,6 +426,8 @@ public class ExplosionEvent : MonoBehaviour
         if (truck != null && TruckInBlast(slot.blastPos, slot.activeBlastRadius))
         {
             truck.Stun(CurrentStunSeconds());
+            truck.BlastOffArm(slot.blastPos);
+            HealthHearts.LoseLife();
         }
 
         slot.explodeLeft = debrisLifetime;

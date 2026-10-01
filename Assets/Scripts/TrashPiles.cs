@@ -47,16 +47,21 @@ public class TrashPiles : MonoBehaviour
     [SerializeField] Material pileMaterial;
     [SerializeField] Color pileColor = new Color(0.55f, 0.55f, 0.55f, 1f);
     [SerializeField, Tooltip("How far the trash floor extends past the real floor so corners stay covered.")] float coverPadding = 70f;
-    [SerializeField] float crawlSpeedMin = 1.5f;
-    [SerializeField] float crawlSpeedMax = 1.7f;
+    [SerializeField] float crawlSpeedMin = 10.5f;
+    [SerializeField] float crawlSpeedMax = 11.4f;
     [SerializeField, Tooltip("How long a landed block can be pushed before the pile swallows it.")] float pushWindowMin = 2.75f;
     [SerializeField, Tooltip("Longest time a landed block waits for a push.")] float pushWindowMax = 4.25f;
-    [SerializeField, Tooltip("Fallback recede distance after a swallow, if EventsHandler is missing.")] float finishPush = 3.6f;
+    [SerializeField, Tooltip("Fallback recede distance after a swallow, if EventsHandler is missing.")] float finishPush = 4.3f;
     [SerializeField, Tooltip("How quickly a receding edge eases into place. Higher is snappier.")] float edgeRecedeLerp = 6f;
     [SerializeField] float consumeDuration = 0.85f;
     [SerializeField, Tooltip("How high expired trash floats while fading out.")] float consumeRiseHeight = 2.4f;
     [SerializeField] float respawnDelayMin = 0.5f;
     [SerializeField] float respawnDelayMax = 1.25f;
+    [SerializeField, Min(1), Tooltip("How many unpushed trash pieces should stay available at once.")] int targetLiveTrash = 5;
+    [SerializeField, Min(1), Tooltip("How many pieces can be crawling in at the same time.")] int maxIncomingTrash = 3;
+    [SerializeField, Tooltip("Seconds between new crawls when the floor is short of trash.")] float spawnInterval = 0.45f;
+    [SerializeField, Tooltip("Short rest after a swallow before that edge can spawn again.")] float spawnRestAfterSwallow = 0.12f;
+    [SerializeField, Range(0f, 0.9f), Tooltip("How far along the crawl a replacement starts (0 = far out, 1 = at the lip).")] float respawnHeadStart = 0.42f;
     [SerializeField] float fallDuration = 0.45f;
     [SerializeField, Tooltip("Inner polygon cannot recede past these decorative piles.")] Transform decorativePiles;
     [SerializeField, Tooltip("Keep the inner wall this far inside the decorative piles.")] float decorativePileInset = 0.75f;
@@ -127,6 +132,7 @@ public class TrashPiles : MonoBehaviour
     Vector3[] decorativeRing;
     Vector3[] gameSectionRing;
     float dangerZoneTimer;
+    float spawnCooldown;
     EventsHandler eventsHandler;
 
     void Start()
@@ -174,6 +180,11 @@ public class TrashPiles : MonoBehaviour
         consumeRiseHeight = Mathf.Max(0.25f, consumeRiseHeight);
         respawnDelayMin = Mathf.Max(0f, respawnDelayMin);
         respawnDelayMax = Mathf.Max(respawnDelayMin, respawnDelayMax);
+        targetLiveTrash = Mathf.Clamp(targetLiveTrash, 1, Mathf.Max(1, count - 1));
+        maxIncomingTrash = Mathf.Clamp(maxIncomingTrash, 1, targetLiveTrash);
+        spawnInterval = Mathf.Max(0.15f, spawnInterval);
+        spawnRestAfterSwallow = Mathf.Max(0.05f, spawnRestAfterSwallow);
+        respawnHeadStart = Mathf.Clamp(respawnHeadStart, 0f, 0.9f);
         fallDuration = Mathf.Max(0.05f, fallDuration);
         decorativePileInset = Mathf.Max(0f, decorativePileInset);
         RefreshRandomTrashFromFolder();
@@ -973,15 +984,49 @@ public class TrashPiles : MonoBehaviour
                     StepConsume(i, dt);
                     break;
                 case BlockLife.Hidden:
-                    hiddenLeft[i] -= dt;
-                    if (hiddenLeft[i] <= 0f)
+                    if (hiddenLeft[i] > 0f)
                     {
-                        TryRespawnSpreadTrash(i);
+                        hiddenLeft[i] -= dt;
                     }
 
                     break;
             }
         }
+
+        StepTrashCadence(dt);
+    }
+
+    void StepTrashCadence(float dt)
+    {
+        spawnCooldown -= dt;
+        if (spawnCooldown > 0f)
+        {
+            return;
+        }
+
+        if (CountTrashInPlay() >= CurrentTargetLiveTrash())
+        {
+            return;
+        }
+
+        if (CountIncomingTrash() >= CurrentMaxIncomingTrash())
+        {
+            spawnCooldown = 0.2f;
+            return;
+        }
+
+        if (!TrySpawnNextTrash())
+        {
+            spawnCooldown = 0.25f;
+            return;
+        }
+
+        spawnCooldown = spawnInterval;
+    }
+
+    void RequestNextTrashSoon()
+    {
+        spawnCooldown = Mathf.Min(spawnCooldown, 0.05f);
     }
 
     void BeginCrawl(int index, bool respinTrash = true)
@@ -1007,31 +1052,21 @@ public class TrashPiles : MonoBehaviour
         lastSpawnEdge = index;
     }
 
-    void TryRespawnSpreadTrash(int readyIndex)
+    bool TrySpawnNextTrash()
     {
-        if (blockLife == null || readyIndex < 0 || readyIndex >= count)
-        {
-            return;
-        }
-
-        if (blockLife[readyIndex] != BlockLife.Hidden)
-        {
-            return;
-        }
-
         int target = PickSpreadSpawnEdge();
         if (target < 0)
         {
-            hiddenLeft[readyIndex] = Random.Range(respawnDelayMin, respawnDelayMax);
-            return;
+            return false;
+        }
+
+        if (openingHeadStart != null)
+        {
+            openingHeadStart[target] = respawnHeadStart;
         }
 
         BeginCrawl(target);
-        if (target != readyIndex && blockLife[readyIndex] == BlockLife.Hidden)
-        {
-            // This edge yielded to a farther slot — wait again for another turn.
-            hiddenLeft[readyIndex] = Random.Range(respawnDelayMin, respawnDelayMax);
-        }
+        return true;
     }
 
     int PickSpreadSpawnEdge()
@@ -1045,7 +1080,7 @@ public class TrashPiles : MonoBehaviour
             bool requireOpenSide = pass == 0;
             for (int candidate = 0; candidate < count; candidate++)
             {
-                if (blockLife[candidate] != BlockLife.Hidden)
+                if (blockLife[candidate] != BlockLife.Hidden || hiddenLeft[candidate] > 0f)
                 {
                     continue;
                 }
@@ -1125,10 +1160,59 @@ public class TrashPiles : MonoBehaviour
         return life != BlockLife.Hidden;
     }
 
+    int CurrentTargetLiveTrash()
+    {
+        return Mathf.Clamp(targetLiveTrash, 1, Mathf.Max(1, count - 1));
+    }
+
+    int CurrentMaxIncomingTrash()
+    {
+        return Mathf.Clamp(maxIncomingTrash, 1, CurrentTargetLiveTrash());
+    }
+
+    int CountTrashInPlay()
+    {
+        if (blockLife == null)
+        {
+            return 0;
+        }
+
+        int live = 0;
+        for (int i = 0; i < blockLife.Length; i++)
+        {
+            BlockLife life = blockLife[i];
+            if (life == BlockLife.Crawling || life == BlockLife.Falling || life == BlockLife.Placed)
+            {
+                live++;
+            }
+        }
+
+        return live;
+    }
+
+    int CountIncomingTrash()
+    {
+        if (blockLife == null)
+        {
+            return 0;
+        }
+
+        int incoming = 0;
+        for (int i = 0; i < blockLife.Length; i++)
+        {
+            BlockLife life = blockLife[i];
+            if (life == BlockLife.Crawling || life == BlockLife.Falling)
+            {
+                incoming++;
+            }
+        }
+
+        return incoming;
+    }
+
     void StartOpeningCrawls()
     {
-        // Start a spread-out subset; never place opening trash on neighboring edges.
-        int initialCount = Mathf.Clamp(Mathf.Max(2, count / 2), 1, Mathf.Max(1, count / 2 + count % 2));
+        int initialCount = CurrentTargetLiveTrash();
         bool[] selected = new bool[count];
         int[] chosen = new int[initialCount];
         int chosenCount = 0;
@@ -1189,8 +1273,10 @@ public class TrashPiles : MonoBehaviour
             }
 
             BeginHidden(i);
-            hiddenLeft[i] = Random.Range(respawnDelayMin, respawnDelayMax) + (i + 1) * stagger;
+            hiddenLeft[i] = spawnRestAfterSwallow;
         }
+
+        spawnCooldown = 0.2f;
     }
 
     bool IsNeighborOfSelected(int candidate, bool[] selected)
@@ -1239,6 +1325,7 @@ public class TrashPiles : MonoBehaviour
 
         blockLife[index] = BlockLife.Shoving;
         SetTrashSolidIgnoredByTruck(index, true);
+        RequestNextTrashSoon();
         // Keep the remaining push window so a partial shove still gets ignored/consumed.
         if (despawnLeft[index] <= 0f)
         {
@@ -1308,6 +1395,7 @@ public class TrashPiles : MonoBehaviour
         despawnLeft[index] = -1f;
         PrepareConsumeFade(index);
         SetBlockOpacity(index, 1f);
+        RequestNextTrashSoon();
     }
 
     void BeginHidden(int index)
@@ -1317,9 +1405,10 @@ public class TrashPiles : MonoBehaviour
         ResetBlockConsumeVisuals(index);
         SetBlockVisible(index, false);
         blockLife[index] = BlockLife.Hidden;
-        hiddenLeft[index] = Random.Range(respawnDelayMin, respawnDelayMax);
+        hiddenLeft[index] = spawnRestAfterSwallow;
         despawnLeft[index] = -1f;
         crawlHold[index] = 0f;
+        RequestNextTrashSoon();
     }
 
     void StepCrawl(int index, float dt)
@@ -1733,7 +1822,7 @@ public class TrashPiles : MonoBehaviour
 
     float WallCreepSpeed(int index)
     {
-        float speed = CurrentCreepSpeed();
+        float speed = CurrentCreepSpeed(WallDistance(index));
         if (WallHasTrash(index))
         {
             return speed;
@@ -2086,7 +2175,7 @@ public class TrashPiles : MonoBehaviour
                 ? Random.Range(closeLo, closeHi)
                 : Random.Range(farLo, farHi);
             corners[i] = center + dir * dist;
-            idleSeconds[i] = 0f;
+            idleSeconds[i] = CurrentCreepHoldSeconds();
             pushedThisStep[i] = false;
             vertexMovedThisStep[i] = false;
         }
@@ -3213,7 +3302,18 @@ public class TrashPiles : MonoBehaviour
 
     float CurrentCreepSpeed()
     {
-        return Events != null ? Events.WallCreepSpeed() : Mathf.Max(0.05f, creepSpeed);
+        return CurrentCreepSpeed(AverageCornerRadius());
+    }
+
+    float CurrentCreepSpeed(float playRadius)
+    {
+        if (Events != null)
+        {
+            return Events.WallCreepSpeed(playRadius);
+        }
+
+        float t = Mathf.InverseLerp(16f, 24f, playRadius);
+        return Mathf.Max(0.05f, creepSpeed) * Mathf.Lerp(1f, 1.85f, Mathf.Clamp01(t));
     }
 
     float CurrentEmptyCreepScale()

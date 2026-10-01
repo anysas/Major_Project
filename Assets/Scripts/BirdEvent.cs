@@ -17,6 +17,7 @@ public class BirdEvent : MonoBehaviour
     [SerializeField] CarController truck;
     [SerializeField, Tooltip("Drag a short horn clip here.")] AudioClip hornClip;
     [SerializeField, Range(0f, 1f), Tooltip("Horn playback volume.")] float hornVolume = 1f;
+    [SerializeField, Min(0.1f), Tooltip("How large spawned birds are compared to the prefab.")] float birdScale = 1.35f;
 
     [Header("Timing")]
     [SerializeField, Tooltip("Shortest wait before a bird appears.")] float spawnIntervalMin = 8f;
@@ -29,11 +30,11 @@ public class BirdEvent : MonoBehaviour
     [SerializeField] float spawnDistanceMax = 40f;
     [SerializeField] float spawnHeightMin = 12f;
     [SerializeField] float spawnHeightMax = 18f;
-    [SerializeField] float swoopSpeed = 22f;
+    [SerializeField] float swoopSpeed = 28f;
     [SerializeField] float circleHeight = 6.5f;
     [SerializeField] float circleRadius = 3.5f;
-    [SerializeField] float circleSpeed = 220f;
-    [SerializeField] float fleeSpeed = 32f;
+    [SerializeField] float circleSpeed = 230f;
+    [SerializeField] float fleeSpeed = 36f;
 
     AudioSource hornSource;
     Transform[] birds;
@@ -92,6 +93,7 @@ public class BirdEvent : MonoBehaviour
         spawnDistanceMax = Mathf.Max(spawnDistanceMin, spawnDistanceMax);
         spawnHeightMin = Mathf.Max(1f, spawnHeightMin);
         spawnHeightMax = Mathf.Max(spawnHeightMin, spawnHeightMax);
+        birdScale = Mathf.Max(0.1f, birdScale);
         swoopSpeed = Mathf.Max(1f, swoopSpeed);
         circleHeight = Mathf.Max(0.5f, circleHeight);
         circleRadius = Mathf.Max(0.4f, circleRadius);
@@ -217,6 +219,7 @@ public class BirdEvent : MonoBehaviour
             GameObject spawned = Instantiate(birdPrefab, spawn, Quaternion.identity);
             spawned.name = "Bird " + (i + 1);
             spawned.SetActive(true);
+            spawned.transform.localScale = birdPrefab.transform.localScale * birdScale;
             spawned.transform.SetParent(transform, true);
             DisableColliders(spawned);
 
@@ -271,35 +274,16 @@ public class BirdEvent : MonoBehaviour
 
     void StepSwoop(float dt)
     {
-        bool allArrived = true;
+        bool anyArrived = false;
         for (int i = 0; i < birds.Length; i++)
         {
-            if (birds[i] == null)
+            if (FlyTowardOrbit(i, dt))
             {
-                continue;
-            }
-
-            Vector3 target = OrbitPoint(i);
-            float speed = CurrentSwoopSpeed();
-            Vector3 next = Vector3.MoveTowards(birds[i].position, target, speed * dt);
-            Vector3 delta = next - birds[i].position;
-            birds[i].position = next;
-            if (delta.sqrMagnitude > 0.0001f)
-            {
-                FaceFlight(birds[i], delta);
-            }
-
-            if ((next - target).sqrMagnitude > 0.35f)
-            {
-                allArrived = false;
-            }
-            else
-            {
-                birds[i].position = target;
+                anyArrived = true;
             }
         }
 
-        if (allArrived)
+        if (anyArrived)
         {
             phase = BirdPhase.Circling;
             circleLeft = CurrentCircleSeconds();
@@ -314,6 +298,11 @@ public class BirdEvent : MonoBehaviour
         for (int i = 0; i < birds.Length; i++)
         {
             if (birds[i] == null)
+            {
+                continue;
+            }
+
+            if (!FlyTowardOrbit(i, dt))
             {
                 continue;
             }
@@ -337,6 +326,43 @@ public class BirdEvent : MonoBehaviour
 
             BeginFlee();
         }
+    }
+
+    bool FlyTowardOrbit(int index, float dt)
+    {
+        if (birds == null || index < 0 || index >= birds.Length || birds[index] == null)
+        {
+            return false;
+        }
+
+        Vector3 target = OrbitPoint(index);
+        if ((birds[index].position - target).sqrMagnitude <= 0.35f)
+        {
+            birds[index].position = target;
+            return true;
+        }
+
+        if (dt <= 0f)
+        {
+            return false;
+        }
+
+        float speed = CurrentSwoopSpeed();
+        Vector3 next = Vector3.MoveTowards(birds[index].position, target, speed * dt);
+        Vector3 delta = next - birds[index].position;
+        birds[index].position = next;
+        if (delta.sqrMagnitude > 0.0001f)
+        {
+            FaceFlight(birds[index], delta);
+        }
+
+        if ((next - target).sqrMagnitude <= 0.35f)
+        {
+            birds[index].position = target;
+            return true;
+        }
+
+        return false;
     }
 
     void StepFlee(float dt)
