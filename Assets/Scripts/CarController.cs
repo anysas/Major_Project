@@ -15,6 +15,7 @@ public class CarController : MonoBehaviour
     [SerializeField] float armRaisedX = -55f;
     [SerializeField] float armRotateSpeed = 120f;
     [SerializeField] float loweredSpeedFactor = 0.7f;
+    [SerializeField] float raisedSpeedFactor = 1.5f;
     [SerializeField] float headlightRange = 36f;
     [SerializeField] float headlightAngle = 88f;
     [SerializeField] float headlightIntensity = 150f;
@@ -686,7 +687,7 @@ public class CarController : MonoBehaviour
         float raiseT = Mathf.Abs(armRaisedX - armRestX) > 0.001f
             ? Mathf.InverseLerp(armRestX, armRaisedX, armX)
             : 1f;
-        float speedCap = maxSpeed * Mathf.Lerp(loweredSpeedFactor, 1f, raiseT);
+        float speedCap = maxSpeed * Mathf.Lerp(loweredSpeedFactor, raisedSpeedFactor, raiseT);
 
         if (moveDir.sqrMagnitude > 0.01f)
         {

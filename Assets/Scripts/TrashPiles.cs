@@ -16,6 +16,7 @@ public class TrashPiles : MonoBehaviour
     [SerializeField, Min(3), Tooltip("Number of edges on the empty inner polygon.")] int count = 8;
     [SerializeField, Tooltip("Typical starting distance from the circle for blocks that sit further out.")] float radius = 12f;
     [SerializeField] float extraClearance = 2f;
+    [SerializeField, Min(0.1f), Tooltip("Uniform size of spawned trash pieces.")] float trashScale = 1.6f;
     [SerializeField] float pileHeight = 0.8f;
     [SerializeField] float barrierHeight = 8f;
     [SerializeField, Tooltip("Empty space between each block and the polygon inner edge.")] float blockGap = 0.45f;
@@ -25,16 +26,19 @@ public class TrashPiles : MonoBehaviour
     [SerializeField, Tooltip("How much farther from the circle blocks start, so the player can read the layout.")] float startBackOffset = 8f;
     [SerializeField, Min(0), Tooltip("How many blocks start much closer to the circle than the rest.")] int closeThreatCount = 2;
     [SerializeField, Tooltip("How much farther from the circle those closest walls start, so a falling block does not land on the border.")] float closeThreatBackOffset = 3.5f;
-    [SerializeField, Tooltip("Maximum distance from the circle a block can be pushed. Still cannot leave the floor.")] float maxPushDistance = 70f;
+    [SerializeField, Tooltip("Maximum distance from the circle a block can be pushed. Still cannot leave the floor.")] float maxPushDistance = 120f;
     [SerializeField, Tooltip("Fallback wall crawl speed if EventsHandler is missing. Live games use EventsHandler easy→hard.")] float creepSpeed = 0.8f;
     [SerializeField, Range(0.05f, 1f), Tooltip("Fallback empty-wall speed scale if EventsHandler is missing.")] float emptyWallCreepScale = 0.4f;
     [SerializeField, Tooltip("Delay between each wall's first drop, closest to the border first.")] float firstFallStagger = 0.35f;
-    [SerializeField, Range(0f, 0.95f), Tooltip("How far along the crawl the opening trash starts (0 = far out, 1 = at the lip).")] float closestHeadStart = 0.55f;
+    [SerializeField, Range(0f, 0.95f), Tooltip("How far along the crawl the opening trash starts (0 = far out, 1 = at the lip).")] float closestHeadStart = 0.18f;
     [SerializeField, Tooltip("Fallback stall after a wall is shoved back, if EventsHandler is missing.")] float stopHoldSeconds = 2.5f;
     [SerializeField] float pushSpeedThreshold = 0.12f;
     [SerializeField, Tooltip("How much farther the outermost starting blocks sit from the closest ones.")] float startSpread = 7f;
-    [SerializeField, Tooltip("Hard cap on how far starting edges can sit from center. Also clamped to the camera view.")] float maxStartDistance = 24f;
+    [SerializeField, Tooltip("Hard cap on how far starting edges can sit from center when GameSection is missing. Also clamped to the camera view.")] float maxStartDistance = 24f;
     [SerializeField, Range(0.5f, 1f), Tooltip("Keep starting edges this far inside the camera ground footprint.")] float startViewPadding = 0.98f;
+    [SerializeField, Tooltip("Play area used for the opening layout. Falls back to a GameObject named GameSection.")] Transform gameSection;
+    [SerializeField, Tooltip("Keep starting edges this far inside GameSection.")] float gameSectionInset = 0.35f;
+    [SerializeField, Range(0.75f, 1f), Tooltip("How fully the opening polygon fills GameSection.")] float gameSectionFill = 0.995f;
     [Header("Fail State")]
     [SerializeField, Min(0.5f), Tooltip("Radius of the invisible circle that follows the truck.")] float dangerZoneRadius = 5.5f;
     [SerializeField, Min(1), Tooltip("How many trash objects must stay inside the circle to start the fail timer.")] int failTrashCount = 3;
@@ -121,6 +125,7 @@ public class TrashPiles : MonoBehaviour
     readonly List<Vector3> sectorOuter = new List<Vector3>(64);
     static MaterialPropertyBlock sharedFadeBlock;
     Vector3[] decorativeRing;
+    Vector3[] gameSectionRing;
     float dangerZoneTimer;
     EventsHandler eventsHandler;
 
@@ -151,8 +156,11 @@ public class TrashPiles : MonoBehaviour
         failHoldSeconds = Mathf.Max(0.05f, failHoldSeconds);
         frontPushDot = Mathf.Clamp(frontPushDot, 0.05f, 0.95f);
         startSpread = Mathf.Max(0.25f, startSpread);
+        trashScale = Mathf.Max(0.1f, trashScale);
         maxStartDistance = Mathf.Max(4f, maxStartDistance);
         startViewPadding = Mathf.Clamp(startViewPadding, 0.5f, 1f);
+        gameSectionInset = Mathf.Max(0f, gameSectionInset);
+        gameSectionFill = Mathf.Clamp(gameSectionFill, 0.75f, 1f);
         emptyWallCreepScale = Mathf.Clamp(emptyWallCreepScale, 0.05f, 1f);
         firstFallStagger = Mathf.Max(0f, firstFallStagger);
         closestHeadStart = Mathf.Clamp01(closestHeadStart);
@@ -1163,7 +1171,7 @@ public class TrashPiles : MonoBehaviour
         }
 
         float stagger = Mathf.Max(0f, firstFallStagger);
-        float headBase = Mathf.Clamp(closestHeadStart, 0.45f, 0.85f);
+        float headBase = Mathf.Clamp(closestHeadStart, 0.05f, 0.85f);
         for (int rank = 0; rank < chosenCount; rank++)
         {
             int index = chosen[rank];
@@ -1949,6 +1957,7 @@ public class TrashPiles : MonoBehaviour
         }
 
         CacheDecorativePileRing();
+        CacheGameSectionRing();
 
         corners = new Vector3[count];
         idleSeconds = new float[count];
@@ -2009,19 +2018,27 @@ public class TrashPiles : MonoBehaviour
         float borderSafe = landClear / apothemScale;
         float carSafe = CarClearanceRadius() + inset + extraClearance + 1.5f;
         float safeMin = Mathf.Max(minRadius, borderSafe, carSafe);
-        float viewCap = EstimateVisibleStartDistance();
-        float startCap = Mathf.Max(safeMin + 1.25f, Mathf.Min(maxStartDistance, viewCap));
+        bool useSection = HasGameSection();
+        float startCap = 0f;
+        if (!useSection)
+        {
+            float viewCap = EstimateVisibleStartDistance();
+            startCap = Mathf.Max(safeMin + 1.25f, Mathf.Min(maxStartDistance, viewCap));
+            safeMin = Mathf.Min(safeMin, startCap);
+        }
 
         float threatClose = safeMin + closeThreatBackOffset;
         float threatFar = threatClose + Mathf.Min(1.5f, startSpread * 0.35f);
         float normalClose = safeMin + startBackOffset;
         float normalFar = normalClose + startSpread;
 
-        safeMin = Mathf.Min(safeMin, startCap);
-        threatClose = Mathf.Clamp(threatClose, safeMin + 0.25f, startCap);
-        threatFar = Mathf.Clamp(threatFar, threatClose + 0.25f, startCap);
-        normalClose = Mathf.Clamp(normalClose, Mathf.Min(threatFar + 0.35f, startCap), startCap);
-        normalFar = Mathf.Clamp(normalFar, normalClose + 0.25f, startCap);
+        if (!useSection)
+        {
+            threatClose = Mathf.Clamp(threatClose, safeMin + 0.25f, startCap);
+            threatFar = Mathf.Clamp(threatFar, threatClose + 0.25f, startCap);
+            normalClose = Mathf.Clamp(normalClose, Mathf.Min(threatFar + 0.35f, startCap), startCap);
+            normalFar = Mathf.Clamp(normalFar, normalClose + 0.25f, startCap);
+        }
 
         bool[] closeThreat = new bool[count];
         int threatCount = Mathf.Min(closeThreatCount, Mathf.Max(0, count - 1));
@@ -2044,11 +2061,31 @@ public class TrashPiles : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             float angle = sector * i + Random.Range(-sector * 0.14f, sector * 0.14f);
+            Vector3 dir = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+            float cap = useSection ? GameSectionStartDistance(dir) : startCap;
+            cap = Mathf.Max(safeMin + 0.25f, cap);
+
+            float closeLo = Mathf.Clamp(threatClose, safeMin + 0.25f, cap);
+            float closeHi = Mathf.Clamp(threatFar, closeLo + 0.25f, cap);
+            float farLo = Mathf.Clamp(normalClose, Mathf.Min(closeHi + 0.35f, cap), cap);
+            float farHi = Mathf.Clamp(normalFar, farLo + 0.25f, cap);
+            if (useSection)
+            {
+                farHi = cap;
+                farLo = Mathf.Max(safeMin + 0.25f, cap - 1.5f);
+                closeHi = Mathf.Max(safeMin + 0.25f, cap - 2f);
+                closeLo = Mathf.Max(safeMin + 0.25f, cap - 5f);
+                if (closeHi < closeLo)
+                {
+                    closeHi = closeLo;
+                }
+            }
+
             bool close = closeThreat[i] || closeThreat[Wrap(i - 1)];
             float dist = close
-                ? Random.Range(threatClose, threatFar)
-                : Random.Range(normalClose, normalFar);
-            corners[i] = center + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * dist;
+                ? Random.Range(closeLo, closeHi)
+                : Random.Range(farLo, farHi);
+            corners[i] = center + dir * dist;
             idleSeconds[i] = 0f;
             pushedThisStep[i] = false;
             vertexMovedThisStep[i] = false;
@@ -2188,6 +2225,7 @@ public class TrashPiles : MonoBehaviour
         GameObject spawned = Instantiate(prefab, pos, rotation, worldRoot);
         spawned.name = prefab.name + " Edge " + index;
         spawned.SetActive(true);
+        spawned.transform.localScale = prefab.transform.localScale * trashScale;
         PrepareTrashInstance(spawned, trashPhysics);
 
         TrashCube cube = spawned.GetComponent<TrashCube>();
@@ -2427,8 +2465,8 @@ public class TrashPiles : MonoBehaviour
             float xz;
             float y;
             EstimatePrefabSize(prefab, out xz, out y);
-            cubeExtent = Mathf.Max(cubeExtent, xz);
-            cubeY = Mathf.Max(cubeY, y);
+            cubeExtent = Mathf.Max(cubeExtent, xz * trashScale);
+            cubeY = Mathf.Max(cubeY, y * trashScale);
         }
     }
 
@@ -3469,6 +3507,12 @@ public class TrashPiles : MonoBehaviour
             cap = Mathf.Max(minRadius + 0.1f, decorative);
         }
 
+        float section = GameSectionRadius(dir);
+        if (section < cap)
+        {
+            cap = Mathf.Max(minRadius + 0.1f, section);
+        }
+
         return cap;
     }
 
@@ -3581,6 +3625,152 @@ public class TrashPiles : MonoBehaviour
         }
 
         return Mathf.Max(0.1f, best - decorativePileInset);
+    }
+
+    bool HasGameSection()
+    {
+        return gameSectionRing != null && gameSectionRing.Length >= 3;
+    }
+
+    void CacheGameSectionRing()
+    {
+        gameSectionRing = null;
+        Transform root = gameSection;
+        if (root == null)
+        {
+            GameObject found = GameObject.Find("GameSection");
+            if (found != null)
+            {
+                root = found.transform;
+                gameSection = root;
+            }
+        }
+
+        if (root == null)
+        {
+            return;
+        }
+
+        List<Vector3> points = new List<Vector3>(16);
+        MeshFilter filter = root.GetComponent<MeshFilter>();
+        Mesh mesh = filter != null ? filter.sharedMesh : null;
+        if (mesh != null && mesh.vertexCount > 0)
+        {
+            Vector3[] verts = mesh.vertices;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Vector3 world = root.TransformPoint(verts[i]);
+                world.y = 0f;
+                AddUniqueXZ(points, world, 0.15f);
+            }
+        }
+
+        if (points.Count < 3)
+        {
+            Bounds worldBounds;
+            Renderer renderer = root.GetComponent<Renderer>();
+            Collider collider = root.GetComponent<Collider>();
+            if (renderer != null)
+            {
+                worldBounds = renderer.bounds;
+            }
+            else if (collider != null)
+            {
+                worldBounds = collider.bounds;
+            }
+            else
+            {
+                Vector3 scale = root.lossyScale;
+                worldBounds = new Bounds(root.position, new Vector3(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z)));
+            }
+
+            Vector3 min = worldBounds.min;
+            Vector3 max = worldBounds.max;
+            points.Clear();
+            points.Add(new Vector3(min.x, 0f, min.z));
+            points.Add(new Vector3(max.x, 0f, min.z));
+            points.Add(new Vector3(max.x, 0f, max.z));
+            points.Add(new Vector3(min.x, 0f, max.z));
+        }
+
+        if (points.Count < 3)
+        {
+            return;
+        }
+
+        points.Sort((a, b) =>
+        {
+            float angleA = Mathf.Atan2(a.z - center.z, a.x - center.x);
+            float angleB = Mathf.Atan2(b.z - center.z, b.x - center.x);
+            return angleA.CompareTo(angleB);
+        });
+        gameSectionRing = points.ToArray();
+    }
+
+    float GameSectionRadius(Vector3 dir)
+    {
+        return RadiusToRing(gameSectionRing, dir, gameSectionInset, maxPushDistance);
+    }
+
+    float GameSectionStartDistance(Vector3 dir)
+    {
+        float edge = GameSectionRadius(dir);
+        return Mathf.Max(0.1f, edge * Mathf.Clamp(gameSectionFill, 0.75f, 1f));
+    }
+
+    float RadiusToRing(Vector3[] ring, Vector3 dir, float inset, float fallback)
+    {
+        if (ring == null || ring.Length < 3)
+        {
+            return fallback;
+        }
+
+        dir.y = 0f;
+        if (dir.sqrMagnitude < 0.0001f)
+        {
+            return fallback;
+        }
+
+        dir.Normalize();
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < ring.Length; i++)
+        {
+            Vector3 a = ring[i];
+            Vector3 b = ring[(i + 1) % ring.Length];
+            float hit;
+            if (!RayHitsSegmentXZ(center, dir, a, b, out hit))
+            {
+                continue;
+            }
+
+            if (hit < best)
+            {
+                best = hit;
+            }
+        }
+
+        if (float.IsInfinity(best))
+        {
+            return fallback;
+        }
+
+        return Mathf.Max(0.1f, best - Mathf.Max(0f, inset));
+    }
+
+    static void AddUniqueXZ(List<Vector3> points, Vector3 candidate, float minSeparation)
+    {
+        float minSqr = minSeparation * minSeparation;
+        for (int i = 0; i < points.Count; i++)
+        {
+            float dx = points[i].x - candidate.x;
+            float dz = points[i].z - candidate.z;
+            if (dx * dx + dz * dz <= minSqr)
+            {
+                return;
+            }
+        }
+
+        points.Add(candidate);
     }
 
     static bool RayHitsSegmentXZ(Vector3 origin, Vector3 dir, Vector3 a, Vector3 b, out float distance)
