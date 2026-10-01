@@ -45,6 +45,7 @@ public class ExplosionEvent : MonoBehaviour
     [SerializeField, Tooltip("Use the full blast size while the play area is at least this wide.")] float radiusFullAtPlayRadius = 16f;
     [SerializeField, Tooltip("Shrink toward the tight scale once the play area is this small.")] float radiusTightAtPlayRadius = 8.5f;
     [SerializeField, Range(0.5f, 1f), Tooltip("How large the blast stays when the driveable area is tight.")] float tightRadiusScale = 0.78f;
+    [SerializeField, Range(0f, 0.35f), Tooltip("Truck bias once the floor is tight, so the warning sits to one side instead of on the truck.")] float tightTruckBias = 0.12f;
     [SerializeField, Tooltip("Keep warnings this far inside the pile walls.")] float edgeInset = 1.25f;
     [SerializeField] Color warningColor = new Color(1f, 0.15f, 0.08f, 0.55f);
     [SerializeField] int debrisCount = 28;
@@ -52,10 +53,18 @@ public class ExplosionEvent : MonoBehaviour
     [SerializeField, Tooltip("If the pile's average radius is at least this, a second explosion can run at the same time.")] float spaciousRadiusForMulti = 15f;
     [SerializeField, Tooltip("Minimum distance between simultaneous explosion markers.")] float multiBlastSeparation = 8f;
 
+    public static bool IsPresent { get; private set; }
+
     BlastSlot[] slots;
     Material debrisMaterial;
     float floorY;
     EventsHandler eventsHandler;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetStatics()
+    {
+        IsPresent = false;
+    }
 
     void Start()
     {
@@ -106,6 +115,7 @@ public class ExplosionEvent : MonoBehaviour
         radiusFullAtPlayRadius = Mathf.Max(4f, radiusFullAtPlayRadius);
         radiusTightAtPlayRadius = Mathf.Clamp(radiusTightAtPlayRadius, 3f, radiusFullAtPlayRadius - 0.25f);
         tightRadiusScale = Mathf.Clamp(tightRadiusScale, 0.5f, 1f);
+        tightTruckBias = Mathf.Clamp(tightTruckBias, 0f, 0.35f);
         edgeInset = Mathf.Max(0f, edgeInset);
         debrisCount = Mathf.Max(4, debrisCount);
         debrisLifetime = Mathf.Max(0.2f, debrisLifetime);
@@ -144,13 +154,9 @@ public class ExplosionEvent : MonoBehaviour
 
     void Update()
     {
-        if (slots == null)
+        if (slots == null || !ExperienceRestart.HasStarted)
         {
-            return;
-        }
-
-        if (!ExperienceRestart.HasStarted)
-        {
+            IsPresent = false;
             return;
         }
 
@@ -164,6 +170,7 @@ public class ExplosionEvent : MonoBehaviour
             }
 
             SoundManager.SetExplosionWarning(false);
+            IsPresent = false;
             return;
         }
 
@@ -171,6 +178,24 @@ public class ExplosionEvent : MonoBehaviour
         {
             StepSlot(slots[i], Time.deltaTime);
         }
+
+        RefreshPresence();
+    }
+
+    void RefreshPresence()
+    {
+        bool present = false;
+        for (int i = 0; i < slots.Length; i++)
+        {
+            BlastPhase phase = slots[i].phase;
+            if (phase == BlastPhase.Warning || phase == BlastPhase.Exploding)
+            {
+                present = true;
+                break;
+            }
+        }
+
+        IsPresent = present;
     }
 
     void StepSlot(BlastSlot slot, float dt)
@@ -380,7 +405,10 @@ public class ExplosionEvent : MonoBehaviour
 
         float area = piles.AverageCornerRadius();
         float t = Mathf.InverseLerp(radiusFullAtPlayRadius, radiusTightAtPlayRadius, area);
-        return Mathf.Lerp(full, full * tightRadiusScale, Mathf.Clamp01(t));
+        float scaled = Mathf.Lerp(full, full * tightRadiusScale, Mathf.Clamp01(t));
+        float share = eventsHandler != null ? eventsHandler.MaxBlastOfPlayRadius : 0.45f;
+        float cap = Mathf.Max(0.5f, area) * share;
+        return Mathf.Max(0.5f, Mathf.Min(scaled, cap));
     }
 
     float CurrentTruckBias()
@@ -390,7 +418,15 @@ public class ExplosionEvent : MonoBehaviour
             eventsHandler = EventsHandler.Instance;
         }
 
-        return eventsHandler != null ? eventsHandler.ExplosionTruckBias() : 0f;
+        float bias = eventsHandler != null ? eventsHandler.ExplosionTruckBias() : 0f;
+        if (piles == null)
+        {
+            return bias;
+        }
+
+        float area = piles.AverageCornerRadius();
+        float tight = Mathf.InverseLerp(radiusFullAtPlayRadius, radiusTightAtPlayRadius, area);
+        return Mathf.Lerp(bias, tightTruckBias, Mathf.Clamp01(tight));
     }
 
     void StepWarning(BlastSlot slot, float dt)

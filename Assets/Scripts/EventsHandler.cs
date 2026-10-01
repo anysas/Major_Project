@@ -63,6 +63,9 @@ public class EventsHandler : MonoBehaviour
     [SerializeField] float stallSecondsHard = 0.65f;
     [SerializeField, Tooltip("How far a swallowed block recedes its wall. Bigger early, stingier late.")] float finishPushEasy = 6.8f;
     [SerializeField] float finishPushHard = 2.1f;
+    [SerializeField, Tooltip("Play radius where shove distance is still on the late-game ramp.")] float pushRestoreFromRadius = 16f;
+    [SerializeField, Tooltip("Play radius where a shove uses the larger easy pushback again.")] float pushRestoreAtRadius = 8.5f;
+    [SerializeField, Range(0.25f, 0.65f), Tooltip("Blast radius, and the minimum tight-floor shove, as a fraction of the play radius.")] float maxBlastOfPlayRadius = 0.45f;
     [SerializeField, Range(0.05f, 1f), Tooltip("Empty edges creep this fraction of the current wall speed.")]
     float emptyCreepScaleEasy = 0.5f;
     [SerializeField, Range(0.05f, 1f)] float emptyCreepScaleHard = 0.9f;
@@ -136,6 +139,9 @@ public class EventsHandler : MonoBehaviour
         stallSecondsHard = Mathf.Clamp(stallSecondsHard, 0.05f, stallSecondsEasy);
         finishPushEasy = Mathf.Max(0.25f, finishPushEasy);
         finishPushHard = Mathf.Clamp(finishPushHard, 0.2f, finishPushEasy);
+        pushRestoreAtRadius = Mathf.Max(3f, pushRestoreAtRadius);
+        pushRestoreFromRadius = Mathf.Max(pushRestoreAtRadius + 0.5f, pushRestoreFromRadius);
+        maxBlastOfPlayRadius = Mathf.Clamp(maxBlastOfPlayRadius, 0.25f, 0.65f);
         emptyCreepScaleEasy = Mathf.Clamp(emptyCreepScaleEasy, 0.05f, 1f);
         emptyCreepScaleHard = Mathf.Clamp(emptyCreepScaleHard, emptyCreepScaleEasy, 1f);
         waitDrainHard = Mathf.Max(1f, waitDrainHard);
@@ -236,6 +242,8 @@ public class EventsHandler : MonoBehaviour
         return Mathf.Lerp(explosionTruckBiasEasy, explosionTruckBiasHard, Pressure);
     }
 
+    public float MaxBlastOfPlayRadius => maxBlastOfPlayRadius;
+
     public bool AllowMultiExplosion()
     {
         return Pressure >= multiExplosionFromPressure;
@@ -261,6 +269,20 @@ public class EventsHandler : MonoBehaviour
     public float WallFinishPush()
     {
         return Mathf.Lerp(finishPushEasy, finishPushHard, Pressure);
+    }
+
+    public float WallFinishPush(float playRadius)
+    {
+        float pressured = WallFinishPush();
+        float tight = Mathf.InverseLerp(pushRestoreFromRadius, pushRestoreAtRadius, playRadius);
+        float restored = Mathf.Lerp(pressured, finishPushEasy, Mathf.Clamp01(tight));
+        if (tight <= 0f)
+        {
+            return restored;
+        }
+
+        float blastRoom = Mathf.Max(0.5f, playRadius) * maxBlastOfPlayRadius;
+        return Mathf.Max(restored, Mathf.Min(finishPushEasy, blastRoom));
     }
 
     public float WallEmptyCreepScale()

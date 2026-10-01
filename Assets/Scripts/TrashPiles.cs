@@ -32,7 +32,7 @@ public class TrashPiles : MonoBehaviour
     [SerializeField, Tooltip("Delay between each wall's first drop, closest to the border first.")] float firstFallStagger = 0.35f;
     [SerializeField, Range(0f, 0.95f), Tooltip("How far along the crawl the opening trash starts (0 = far out, 1 = at the lip).")] float closestHeadStart = 0.18f;
     [SerializeField, Tooltip("Fallback stall after a wall is shoved back, if EventsHandler is missing.")] float stopHoldSeconds = 2.5f;
-    [SerializeField] float pushSpeedThreshold = 0.12f;
+    [SerializeField] float pushSpeedThreshold = 0.05f;
     [SerializeField, Tooltip("How much farther the outermost starting blocks sit from the closest ones.")] float startSpread = 7f;
     [SerializeField, Tooltip("Hard cap on how far starting edges can sit from center when GameSection is missing. Also clamped to the camera view.")] float maxStartDistance = 24f;
     [SerializeField, Range(0.5f, 1f), Tooltip("Keep starting edges this far inside the camera ground footprint.")] float startViewPadding = 0.98f;
@@ -43,7 +43,8 @@ public class TrashPiles : MonoBehaviour
     [SerializeField, Min(0.5f), Tooltip("Radius of the invisible circle that follows the truck.")] float dangerZoneRadius = 5.5f;
     [SerializeField, Min(1), Tooltip("How many trash objects must stay inside the circle to start the fail timer.")] int failTrashCount = 3;
     [SerializeField, Min(0.05f), Tooltip("How long 3+ trash objects must remain inside the circle before game over.")] float failHoldSeconds = 2f;
-    [SerializeField, Range(0.05f, 0.95f), Tooltip("How centered a block must be in front of the truck to be pushable. Lower = wider front cone.")] float frontPushDot = 0.2f;
+    [SerializeField, Range(-0.2f, 0.95f), Tooltip("How centered a block must be in front of the truck to be pushable. Lower = wider front cone.")] float frontPushDot = 0f;
+    [SerializeField, Tooltip("How close the truck can be, in metres, and still shove a piece it has not quite touched.")] float pushReach = 0.65f;
     [SerializeField] Material pileMaterial;
     [SerializeField] Color pileColor = new Color(0.55f, 0.55f, 0.55f, 1f);
     [SerializeField, Tooltip("How far the trash floor extends past the real floor so corners stay covered.")] float coverPadding = 70f;
@@ -51,6 +52,7 @@ public class TrashPiles : MonoBehaviour
     [SerializeField] float crawlSpeedMax = 11.4f;
     [SerializeField, Tooltip("How long a landed block can be pushed before the pile swallows it.")] float pushWindowMin = 2.75f;
     [SerializeField, Tooltip("Longest time a landed block waits for a push.")] float pushWindowMax = 4.25f;
+    [SerializeField, Tooltip("How long before an unpushed piece disappears it starts blinking.")] float expireBlinkSeconds = 1.25f;
     [SerializeField, Tooltip("Fallback recede distance after a swallow, if EventsHandler is missing.")] float finishPush = 4.3f;
     [SerializeField, Tooltip("How quickly a receding edge eases into place. Higher is snappier.")] float edgeRecedeLerp = 6f;
     [SerializeField] float consumeDuration = 0.85f;
@@ -160,7 +162,8 @@ public class TrashPiles : MonoBehaviour
         dangerZoneRadius = Mathf.Max(0.5f, dangerZoneRadius);
         failTrashCount = Mathf.Max(1, failTrashCount);
         failHoldSeconds = Mathf.Max(0.05f, failHoldSeconds);
-        frontPushDot = Mathf.Clamp(frontPushDot, 0.05f, 0.95f);
+        frontPushDot = Mathf.Clamp(frontPushDot, -0.2f, 0.95f);
+        pushReach = Mathf.Clamp(pushReach, 0.15f, 1.5f);
         startSpread = Mathf.Max(0.25f, startSpread);
         trashScale = Mathf.Max(0.1f, trashScale);
         maxStartDistance = Mathf.Max(4f, maxStartDistance);
@@ -174,6 +177,7 @@ public class TrashPiles : MonoBehaviour
         crawlSpeedMax = Mathf.Max(crawlSpeedMin, crawlSpeedMax);
         pushWindowMin = Mathf.Max(0.35f, pushWindowMin);
         pushWindowMax = Mathf.Max(pushWindowMin, pushWindowMax);
+        expireBlinkSeconds = Mathf.Clamp(expireBlinkSeconds, 0.2f, pushWindowMin);
         finishPush = Mathf.Max(0.1f, finishPush);
         edgeRecedeLerp = Mathf.Max(0.5f, edgeRecedeLerp);
         consumeDuration = Mathf.Max(0.05f, consumeDuration);
@@ -975,10 +979,19 @@ public class TrashPiles : MonoBehaviour
                     {
                         BeginConsume(i);
                     }
+                    else
+                    {
+                        UpdateExpireBlink(i);
+                    }
 
                     break;
                 case BlockLife.Shoving:
                     StepShove(i, dt);
+                    if (blockLife[i] == BlockLife.Shoving)
+                    {
+                        UpdateExpireBlink(i);
+                    }
+
                     break;
                 case BlockLife.Consuming:
                     StepConsume(i, dt);
@@ -1291,6 +1304,27 @@ public class TrashPiles : MonoBehaviour
         pa.y = 0f;
         pb.y = 0f;
         return Vector3.Distance(pa, pb);
+    }
+
+    void UpdateExpireBlink(int index)
+    {
+        SetBlockVisible(index, true);
+        float warn = Mathf.Max(0.2f, expireBlinkSeconds);
+        if (despawnLeft == null || despawnLeft[index] > warn)
+        {
+            if (consumeFadeReady != null && consumeFadeReady[index])
+            {
+                SetBlockOpacity(index, 1f);
+            }
+
+            return;
+        }
+
+        PrepareConsumeFade(index);
+        float urgency = 1f - Mathf.Clamp01(despawnLeft[index] / warn);
+        float interval = Mathf.Lerp(1.6f, 1.15f, urgency);
+        float wave = 0.5f + 0.5f * Mathf.Sin((Time.time / interval + index * 0.17f) * Mathf.PI * 2f);
+        SetBlockOpacity(index, Mathf.Lerp(0.18f, 1f, wave));
     }
 
     void BeginFall(int index)
@@ -1907,6 +1941,20 @@ public class TrashPiles : MonoBehaviour
 
     void SetBlockVisible(int index, bool visible)
     {
+        if (cornerBlocks != null && cornerBlocks[index] != null)
+        {
+            Renderer[] renderers = cornerBlocks[index].GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                {
+                    renderers[i].enabled = visible;
+                }
+            }
+
+            return;
+        }
+
         if (blockRenderers != null && blockRenderers[index] != null)
         {
             blockRenderers[index].enabled = visible;
@@ -2315,7 +2363,7 @@ public class TrashPiles : MonoBehaviour
         spawned.name = prefab.name + " Edge " + index;
         spawned.SetActive(true);
         spawned.transform.localScale = prefab.transform.localScale * trashScale;
-        PrepareTrashInstance(spawned, trashPhysics);
+        PrepareTrashInstance(spawned, trashPhysics, pushReach);
 
         TrashCube cube = spawned.GetComponent<TrashCube>();
         if (cube == null)
@@ -2615,7 +2663,7 @@ public class TrashPiles : MonoBehaviour
         }
     }
 
-    static void PrepareTrashInstance(GameObject spawned, PhysicsMaterial noBounce)
+    static void PrepareTrashInstance(GameObject spawned, PhysicsMaterial noBounce, float pushReach)
     {
         if (spawned.GetComponent<Rigidbody>() == null)
         {
@@ -2623,7 +2671,7 @@ public class TrashPiles : MonoBehaviour
         }
 
         ReplaceWithBoxCollider(spawned, noBounce);
-        AddPushSensor(spawned);
+        AddPushSensor(spawned, pushReach);
     }
 
     static void ReplaceWithBoxCollider(GameObject spawned, PhysicsMaterial noBounce)
@@ -2676,7 +2724,7 @@ public class TrashPiles : MonoBehaviour
         return null;
     }
 
-    static void AddPushSensor(GameObject spawned)
+    static void AddPushSensor(GameObject spawned, float pushReach)
     {
         Transform existing = spawned.transform.Find("PushSensor");
         if (existing != null)
@@ -2704,8 +2752,8 @@ public class TrashPiles : MonoBehaviour
 
         // Thin floor items (forks, spoons) sit under the bumper. Grow the
         // trigger up so the truck can still register a shove.
-        GrowBoxAlongWorldUp(box, 0.85f);
-        box.size = PaddedLocalSize(box.size, spawned.transform.lossyScale);
+        GrowBoxAlongWorldUp(box, 1.15f);
+        box.size = PaddedLocalSize(box.size, spawned.transform.lossyScale, pushReach);
     }
 
     static void GrowBoxAlongWorldUp(BoxCollider box, float minWorldHeight)
@@ -2753,12 +2801,15 @@ public class TrashPiles : MonoBehaviour
         box.center = center;
     }
 
-    static Vector3 PaddedLocalSize(Vector3 localSize, Vector3 lossyScale)
+    static Vector3 PaddedLocalSize(Vector3 localSize, Vector3 lossyScale, float pushReach)
     {
+        float reach = Mathf.Max(0.15f, pushReach);
+        float horizontal = reach * 2f;
+        float vertical = Mathf.Max(0.2f, reach);
         return new Vector3(
-            localSize.x + WorldPaddingToLocal(0.05f, lossyScale.x),
-            localSize.y + WorldPaddingToLocal(0.03f, lossyScale.y),
-            localSize.z + WorldPaddingToLocal(0.05f, lossyScale.z));
+            localSize.x + WorldPaddingToLocal(horizontal, lossyScale.x),
+            localSize.y + WorldPaddingToLocal(vertical, lossyScale.y),
+            localSize.z + WorldPaddingToLocal(horizontal, lossyScale.z));
     }
 
     static float WorldPaddingToLocal(float worldPadding, float axisScale)
@@ -3324,7 +3375,17 @@ public class TrashPiles : MonoBehaviour
 
     float CurrentFinishPush()
     {
-        return Events != null ? Events.WallFinishPush() : Mathf.Max(0.1f, finishPush);
+        if (Events == null)
+        {
+            return Mathf.Max(0.1f, finishPush);
+        }
+
+        if (ExplosionEvent.IsPresent)
+        {
+            return Events.WallFinishPush(AverageCornerRadius());
+        }
+
+        return Events.WallFinishPush();
     }
 
     float CurrentCreepHoldSeconds()
