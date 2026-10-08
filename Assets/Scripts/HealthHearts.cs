@@ -12,8 +12,8 @@ public class HealthHearts : MonoBehaviour
 
     const float HeartSize = 104f;
     const float HeartGap = 12f;
-    const float MarginRight = 40f;
-    const float MarginBottom = 36f;
+    const float MarginLeft = 40f;
+    const float MarginTop = 36f;
 
     static HealthHearts instance;
 
@@ -77,10 +77,6 @@ public class HealthHearts : MonoBehaviour
         Lives--;
         HealthHearts hud = EnsureExists();
         hud.RefreshVisibility();
-        if (Lives <= 0)
-        {
-            ExperienceRestart.NotifyFailed();
-        }
     }
 
     void Awake()
@@ -186,11 +182,11 @@ public class HealthHearts : MonoBehaviour
         GameObject rowObject = new GameObject("Hearts");
         rowObject.transform.SetParent(canvasObject.transform, false);
         RectTransform row = rowObject.AddComponent<RectTransform>();
-        row.anchorMin = new Vector2(1f, 0f);
-        row.anchorMax = new Vector2(1f, 0f);
-        row.pivot = new Vector2(1f, 0f);
+        row.anchorMin = new Vector2(0f, 1f);
+        row.anchorMax = new Vector2(0f, 1f);
+        row.pivot = new Vector2(0f, 1f);
         float width = MaxLives * HeartSize + (MaxLives - 1) * HeartGap;
-        row.anchoredPosition = new Vector2(-MarginRight, MarginBottom);
+        row.anchoredPosition = new Vector2(MarginLeft, -MarginTop);
         row.sizeDelta = new Vector2(width, HeartSize);
 
         hearts = new Image[MaxLives];

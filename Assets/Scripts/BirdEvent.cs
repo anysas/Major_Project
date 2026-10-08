@@ -46,6 +46,8 @@ public class BirdEvent : MonoBehaviour
     float circleLeft;
     float orbitAngle;
     float fleeLeft;
+    Vector3 lastTruckPosition;
+    Vector3 truckStepDelta;
     EventsHandler eventsHandler;
 
     void Awake()
@@ -144,6 +146,8 @@ public class BirdEvent : MonoBehaviour
             return;
         }
 
+        truckStepDelta = ConsumeTruckMove();
+
         switch (phase)
         {
             case BirdPhase.Swooping:
@@ -170,7 +174,7 @@ public class BirdEvent : MonoBehaviour
             hornSource.PlayOneShot(hornClip, hornVolume);
         }
 
-        if (phase == BirdPhase.Swooping || phase == BirdPhase.Circling)
+        if (phase == BirdPhase.Circling)
         {
             BeginFlee();
         }
@@ -207,6 +211,7 @@ public class BirdEvent : MonoBehaviour
         Vector3 truckPos = truck.transform.position;
         float baseAngle = Random.Range(0f, Mathf.PI * 2f);
         orbitAngle = baseAngle;
+        lastTruckPosition = truckPos;
 
         for (int i = 0; i < FlockCount; i++)
         {
@@ -228,7 +233,6 @@ public class BirdEvent : MonoBehaviour
         }
 
         phase = BirdPhase.Swooping;
-        circleLeft = CurrentCircleSeconds();
         SoundManager.PlayBirdsFlyIn();
     }
 
@@ -274,16 +278,23 @@ public class BirdEvent : MonoBehaviour
 
     void StepSwoop(float dt)
     {
-        bool anyArrived = false;
+        bool allArrived = true;
+        bool anyBird = false;
         for (int i = 0; i < birds.Length; i++)
         {
-            if (FlyTowardOrbit(i, dt))
+            if (birds[i] == null)
             {
-                anyArrived = true;
+                continue;
+            }
+
+            anyBird = true;
+            if (!FlyTowardOrbit(i, dt))
+            {
+                allArrived = false;
             }
         }
 
-        if (anyArrived)
+        if (anyBird && allArrived)
         {
             phase = BirdPhase.Circling;
             circleLeft = CurrentCircleSeconds();
@@ -334,6 +345,8 @@ public class BirdEvent : MonoBehaviour
         {
             return false;
         }
+
+        birds[index].position += truckStepDelta;
 
         Vector3 target = OrbitPoint(index);
         if ((birds[index].position - target).sqrMagnitude <= 0.35f)
@@ -459,6 +472,19 @@ public class BirdEvent : MonoBehaviour
         }
 
         return false;
+    }
+
+    Vector3 ConsumeTruckMove()
+    {
+        if (truck == null)
+        {
+            return Vector3.zero;
+        }
+
+        Vector3 pos = truck.transform.position;
+        Vector3 delta = pos - lastTruckPosition;
+        lastTruckPosition = pos;
+        return delta;
     }
 
     Vector3 TruckTop()

@@ -27,6 +27,17 @@ public class DayNightCycle : MonoBehaviour
     Volume nightVolume;
     ColorAdjustments colorAdjust;
     float elapsed;
+    float nightBlend;
+
+    public static DayNightCycle Instance { get; private set; }
+
+    public static bool IsNight => Instance != null && Instance.nightBlend >= 0.5f;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetStatics()
+    {
+        Instance = null;
+    }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void BindIfPresent()
@@ -49,6 +60,7 @@ public class DayNightCycle : MonoBehaviour
 
     void Awake()
     {
+        Instance = this;
         if (sun == null)
         {
             sun = GetComponent<Light>();
@@ -73,6 +85,11 @@ public class DayNightCycle : MonoBehaviour
 
     void OnDestroy()
     {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+
         if (originalSkybox != null)
         {
             RenderSettings.skybox = originalSkybox;
@@ -97,7 +114,8 @@ public class DayNightCycle : MonoBehaviour
         }
 
         elapsed += Time.deltaTime;
-        ApplyNight(CurrentNightBlend());
+        nightBlend = CurrentNightBlend();
+        ApplyNight(nightBlend);
     }
 
     void CacheSkybox()

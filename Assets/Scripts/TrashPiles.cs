@@ -59,9 +59,12 @@ public class TrashPiles : MonoBehaviour
     [SerializeField, Tooltip("How high expired trash floats while fading out.")] float consumeRiseHeight = 2.4f;
     [SerializeField] float respawnDelayMin = 0.5f;
     [SerializeField] float respawnDelayMax = 1.25f;
-    [SerializeField, Min(1), Tooltip("How many unpushed trash pieces should stay available at once.")] int targetLiveTrash = 5;
-    [SerializeField, Min(1), Tooltip("How many pieces can be crawling in at the same time.")] int maxIncomingTrash = 3;
+    [SerializeField, Min(1), Tooltip("How many unpushed trash pieces should stay available at the start.")] int targetLiveTrash = 5;
+    [SerializeField, Min(1), Tooltip("How many unpushed pieces to aim for by the end of the session, so three can pile up in the fail circle.")] int targetLiveTrashLate = 7;
+    [SerializeField, Min(1), Tooltip("How many pieces can be crawling in at the same time at the start.")] int maxIncomingTrash = 3;
+    [SerializeField, Min(1), Tooltip("How many pieces can crawl in at once by the end of the session.")] int maxIncomingTrashLate = 4;
     [SerializeField, Tooltip("Seconds between new crawls when the floor is short of trash.")] float spawnInterval = 0.45f;
+    [SerializeField, Tooltip("Seconds between new crawls once the session is at full pressure.")] float spawnIntervalLate = 0.2f;
     [SerializeField, Tooltip("Short rest after a swallow before that edge can spawn again.")] float spawnRestAfterSwallow = 0.12f;
     [SerializeField, Range(0f, 0.9f), Tooltip("How far along the crawl a replacement starts (0 = far out, 1 = at the lip).")] float respawnHeadStart = 0.42f;
     [SerializeField] float fallDuration = 0.45f;
@@ -185,8 +188,11 @@ public class TrashPiles : MonoBehaviour
         respawnDelayMin = Mathf.Max(0f, respawnDelayMin);
         respawnDelayMax = Mathf.Max(respawnDelayMin, respawnDelayMax);
         targetLiveTrash = Mathf.Clamp(targetLiveTrash, 1, Mathf.Max(1, count - 1));
+        targetLiveTrashLate = Mathf.Clamp(Mathf.Max(targetLiveTrash, targetLiveTrashLate), 1, Mathf.Max(1, count - 1));
         maxIncomingTrash = Mathf.Clamp(maxIncomingTrash, 1, targetLiveTrash);
+        maxIncomingTrashLate = Mathf.Clamp(Mathf.Max(maxIncomingTrash, maxIncomingTrashLate), 1, targetLiveTrashLate);
         spawnInterval = Mathf.Max(0.15f, spawnInterval);
+        spawnIntervalLate = Mathf.Clamp(spawnIntervalLate, 0.15f, spawnInterval);
         spawnRestAfterSwallow = Mathf.Max(0.05f, spawnRestAfterSwallow);
         respawnHeadStart = Mathf.Clamp(respawnHeadStart, 0f, 0.9f);
         fallDuration = Mathf.Max(0.05f, fallDuration);
@@ -568,7 +574,7 @@ public class TrashPiles : MonoBehaviour
         }
 
         CarController car = carBody.GetComponent<CarController>();
-        if (car != null && car.IsArmRaised)
+        if (car != null && (car.IsArmRaised || HealthHearts.Lives <= 0))
         {
             return;
         }
@@ -1034,7 +1040,7 @@ public class TrashPiles : MonoBehaviour
             return;
         }
 
-        spawnCooldown = spawnInterval;
+        spawnCooldown = CurrentSpawnInterval();
     }
 
     void RequestNextTrashSoon()
@@ -1175,12 +1181,35 @@ public class TrashPiles : MonoBehaviour
 
     int CurrentTargetLiveTrash()
     {
-        return Mathf.Clamp(targetLiveTrash, 1, Mathf.Max(1, count - 1));
+        int cap = Mathf.Max(1, count - 1);
+        int early = Mathf.Clamp(targetLiveTrash, 1, cap);
+        int late = Mathf.Clamp(Mathf.Max(early, targetLiveTrashLate), 1, cap);
+        return Mathf.RoundToInt(Mathf.Lerp(early, late, TrashPressure()));
     }
 
     int CurrentMaxIncomingTrash()
     {
-        return Mathf.Clamp(maxIncomingTrash, 1, CurrentTargetLiveTrash());
+        int cap = CurrentTargetLiveTrash();
+        int early = Mathf.Clamp(maxIncomingTrash, 1, cap);
+        int late = Mathf.Clamp(Mathf.Max(early, maxIncomingTrashLate), 1, cap);
+        return Mathf.RoundToInt(Mathf.Lerp(early, late, TrashPressure()));
+    }
+
+    float CurrentSpawnInterval()
+    {
+        float early = Mathf.Max(0.15f, spawnInterval);
+        float late = Mathf.Clamp(spawnIntervalLate, 0.15f, early);
+        return Mathf.Lerp(early, late, TrashPressure());
+    }
+
+    float TrashPressure()
+    {
+        if (eventsHandler == null)
+        {
+            eventsHandler = EventsHandler.Instance;
+        }
+
+        return eventsHandler != null ? eventsHandler.Pressure : 0f;
     }
 
     int CountTrashInPlay()
@@ -1506,7 +1535,7 @@ public class TrashPiles : MonoBehaviour
     bool PlayerStillDrivingInto(int index, Rigidbody carBody)
     {
         CarController car = carBody.GetComponent<CarController>();
-        if (car != null && car.IsArmRaised)
+        if (car != null && (car.IsArmRaised || HealthHearts.Lives <= 0))
         {
             return false;
         }

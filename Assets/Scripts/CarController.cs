@@ -16,9 +16,9 @@ public class CarController : MonoBehaviour
     [SerializeField] float armRotateSpeed = 120f;
     [SerializeField] float loweredSpeedFactor = 0.7f;
     [SerializeField] float raisedSpeedFactor = 1.5f;
-    [SerializeField] float headlightRange = 36f;
-    [SerializeField] float headlightAngle = 130f;
-    [SerializeField] float headlightIntensity = 500f;
+    [SerializeField] float headlightRange = 48f;
+    [SerializeField] float headlightAngle = 64f;
+    [SerializeField] float headlightIntensity = 2800f;
     [SerializeField] float stunCloudHeight = 0.2f;
     [SerializeField] Color stunCloudColor = new Color(0.96f, 0.98f, 1f, 0.72f);
 
@@ -185,6 +185,22 @@ public class CarController : MonoBehaviour
         {
             armColliderWasEnabled[i] = armColliders[i] != null && armColliders[i].enabled;
         }
+
+        SetLayerRecursive(arm, LayerMask.NameToLayer("TruckArm"));
+    }
+
+    static void SetLayerRecursive(Transform root, int layer)
+    {
+        if (root == null || layer < 0)
+        {
+            return;
+        }
+
+        root.gameObject.layer = layer;
+        for (int i = 0; i < root.childCount; i++)
+        {
+            SetLayerRecursive(root.GetChild(i), layer);
+        }
     }
 
     void CollectHeadlight()
@@ -216,9 +232,14 @@ public class CarController : MonoBehaviour
         headlightBeam.color = new Color(1f, 0.95f, 0.8f, 1f);
         headlightBeam.range = Mathf.Max(4f, headlightRange);
         headlightBeam.spotAngle = Mathf.Clamp(headlightAngle, 10f, 160f);
-        headlightBeam.innerSpotAngle = Mathf.Clamp(headlightAngle * 0.62f, 5f, headlightAngle);
+        headlightBeam.innerSpotAngle = Mathf.Clamp(headlightAngle * 0.82f, 5f, headlightAngle);
         headlightBeam.intensity = Mathf.Max(1f, headlightIntensity);
-        headlightBeam.shadows = LightShadows.Soft;
+        headlightBeam.shadows = LightShadows.None;
+        int armLayer = LayerMask.NameToLayer("TruckArm");
+        if (armLayer >= 0)
+        {
+            headlightBeam.cullingMask &= ~(1 << armLayer);
+        }
         headlightBeam.enabled = false;
         beamObject.AddComponent<UniversalAdditionalLightData>();
 
@@ -239,7 +260,7 @@ public class CarController : MonoBehaviour
 
         Vector3 origin = headlightLamp != null ? headlightLamp.position : transform.position + transform.forward * 1.2f + Vector3.up * 1.1f;
         Vector3 aim = transform.forward;
-        aim.y = -0.18f;
+        aim.y = -0.06f;
         if (aim.sqrMagnitude < 0.0001f)
         {
             aim = Vector3.forward;
@@ -248,7 +269,7 @@ public class CarController : MonoBehaviour
         headlightBeam.transform.SetPositionAndRotation(origin, Quaternion.LookRotation(aim.normalized, Vector3.up));
         headlightBeam.range = Mathf.Max(4f, headlightRange);
         headlightBeam.spotAngle = Mathf.Clamp(headlightAngle, 10f, 160f);
-        headlightBeam.innerSpotAngle = Mathf.Clamp(headlightAngle * 0.62f, 5f, headlightAngle);
+        headlightBeam.innerSpotAngle = Mathf.Clamp(headlightAngle * 0.82f, 5f, headlightAngle);
         headlightBeam.intensity = Mathf.Max(1f, headlightIntensity);
     }
 
@@ -760,7 +781,7 @@ public class CarController : MonoBehaviour
             arm.Rotate(flySpin * dt, Space.World);
         }
 
-        if (flyElapsed >= Mathf.Max(0.2f, armReturnDelay) && ExperienceRestart.IsActive)
+        if (flyElapsed >= Mathf.Max(0.2f, armReturnDelay) && ExperienceRestart.IsActive && HealthHearts.Lives > 0)
         {
             BeginArmReturn();
         }
@@ -1073,6 +1094,11 @@ public class CarController : MonoBehaviour
         float raiseT = Mathf.Abs(armRaisedX - armRestX) > 0.001f
             ? Mathf.InverseLerp(armRestX, armRaisedX, armX)
             : 1f;
+        if (DayNightCycle.IsNight && !GameInput.HeadlightHeld)
+        {
+            raiseT = 0f;
+        }
+
         float speedCap = maxSpeed * Mathf.Lerp(loweredSpeedFactor, raisedSpeedFactor, raiseT);
 
         if (moveDir.sqrMagnitude > 0.01f)
