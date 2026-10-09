@@ -37,6 +37,10 @@ public class CarController : MonoBehaviour
     ParticleSystem[] stunClouds;
     Material stunCloudMaterial;
     Texture2D stunCloudTexture;
+    ParticleSystem[] dirtTrails;
+    Material dirtMaterial;
+    Texture2D dirtTexture;
+    bool dirtSpraying;
 
     enum ArmState
     {
@@ -135,6 +139,7 @@ public class CarController : MonoBehaviour
         CollectArm();
         CollectHeadlight();
         CollectStunClouds();
+        CollectDirtTrails();
     }
 
     void OnDestroy()
@@ -147,6 +152,16 @@ public class CarController : MonoBehaviour
         if (stunCloudTexture != null)
         {
             Destroy(stunCloudTexture);
+        }
+
+        if (dirtMaterial != null)
+        {
+            Destroy(dirtMaterial);
+        }
+
+        if (dirtTexture != null)
+        {
+            Destroy(dirtTexture);
         }
 
         DestroyArmFadeMaterials();
@@ -688,12 +703,274 @@ public class CarController : MonoBehaviour
         return radius;
     }
 
+    void CollectDirtTrails()
+    {
+        List<int> rear = new List<int>();
+        CollectRearWheelIndices(rear);
+        if (rear.Count == 0)
+        {
+            return;
+        }
+
+        dirtTexture = CreateDirtClodTexture(64);
+        dirtMaterial = CreateStunCloudMaterial(dirtTexture);
+        dirtTrails = new ParticleSystem[rear.Count];
+        for (int i = 0; i < rear.Count; i++)
+        {
+            int wheelIndex = rear[i];
+            float radius = wheelRadii != null && wheelIndex < wheelRadii.Length
+                ? wheelRadii[wheelIndex]
+                : Mathf.Max(0.05f, wheelRadius);
+            dirtTrails[i] = BuildDirtTrail(wheels[wheelIndex], radius);
+        }
+    }
+
+    void CollectRearWheelIndices(List<int> rear)
+    {
+        if (wheels == null || wheels.Length == 0)
+        {
+            return;
+        }
+
+        float minZ = float.PositiveInfinity;
+        float maxZ = float.NegativeInfinity;
+        float[] localZ = new float[wheels.Length];
+        for (int i = 0; i < wheels.Length; i++)
+        {
+            Transform wheel = wheels[i];
+            if (wheel == null)
+            {
+                localZ[i] = 0f;
+                continue;
+            }
+
+            localZ[i] = transform.InverseTransformPoint(wheel.position).z;
+            minZ = Mathf.Min(minZ, localZ[i]);
+            maxZ = Mathf.Max(maxZ, localZ[i]);
+        }
+
+        // Rear axle sits toward local -Z. A tiny span means every named wheel is already at the back.
+        float span = maxZ - minZ;
+        float cutoff = span < 0.2f ? maxZ + 1f : minZ + span * 0.35f;
+        for (int i = 0; i < wheels.Length; i++)
+        {
+            if (wheels[i] != null && localZ[i] <= cutoff)
+            {
+                rear.Add(i);
+            }
+        }
+    }
+
+    ParticleSystem BuildDirtTrail(Transform wheel, float radius)
+    {
+        Vector3 center = wheel.position;
+        Renderer wheelRenderer = wheel.GetComponentInChildren<Renderer>();
+        if (wheelRenderer != null)
+        {
+            center = wheelRenderer.bounds.center;
+        }
+
+        float safeRadius = Mathf.Max(0.05f, radius);
+        Vector3 contact = center
+            - Vector3.up * safeRadius * 0.82f
+            - transform.forward * safeRadius * 0.55f;
+        float side = transform.InverseTransformPoint(center).x >= 0f ? 1f : -1f;
+
+        GameObject dirtObject = new GameObject("DirtTrail");
+        dirtObject.layer = gameObject.layer;
+        dirtObject.transform.SetParent(transform, false);
+        Vector3 parentScale = transform.lossyScale;
+        dirtObject.transform.localScale = new Vector3(
+            InverseScale(parentScale.x),
+            InverseScale(parentScale.y),
+            InverseScale(parentScale.z));
+        dirtObject.transform.position = contact;
+        dirtObject.transform.localRotation = Quaternion.LookRotation(
+            new Vector3(side * 0.38f, 0.46f, -1f).normalized,
+            Vector3.up);
+
+        ParticleSystem particles = dirtObject.AddComponent<ParticleSystem>();
+        particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        ConfigureDirtTrail(particles, dirtObject.GetComponent<ParticleSystemRenderer>());
+        return particles;
+    }
+
+    void ConfigureDirtTrail(ParticleSystem particles, ParticleSystemRenderer renderer)
+    {
+        ParticleSystem.MainModule main = particles.main;
+        main.playOnAwake = false;
+        main.loop = true;
+        main.duration = 1f;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(0.32f, 0.62f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(2.6f, 5.4f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.28f, 0.72f);
+        main.startColor = new ParticleSystem.MinMaxGradient(
+            new Color(0.36f, 0.24f, 0.14f, 0.95f),
+            new Color(0.68f, 0.52f, 0.30f, 0.72f));
+        main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.scalingMode = ParticleSystemScalingMode.Local;
+        main.gravityModifier = 1.35f;
+        main.maxParticles = 72;
+        main.emitterVelocityMode = ParticleSystemEmitterVelocityMode.Rigidbody;
+
+        ParticleSystem.EmissionModule emission = particles.emission;
+        emission.enabled = true;
+        emission.rateOverTime = 0f;
+        emission.burstCount = 0;
+
+        ParticleSystem.ShapeModule shape = particles.shape;
+        shape.enabled = true;
+        shape.shapeType = ParticleSystemShapeType.Cone;
+        shape.angle = 14f;
+        shape.radius = 0.16f;
+        shape.radiusThickness = 1f;
+        shape.rotation = Vector3.zero;
+
+        ParticleSystem.ColorOverLifetimeModule colorOverLifetime = particles.colorOverLifetime;
+        colorOverLifetime.enabled = true;
+        Gradient fade = new Gradient();
+        fade.SetKeys(
+            new[]
+            {
+                new GradientColorKey(Color.white, 0f),
+                new GradientColorKey(new Color(0.78f, 0.7f, 0.58f), 1f)
+            },
+            new[]
+            {
+                new GradientAlphaKey(0.15f, 0f),
+                new GradientAlphaKey(1f, 0.08f),
+                new GradientAlphaKey(0.55f, 0.45f),
+                new GradientAlphaKey(0f, 1f)
+            });
+        colorOverLifetime.color = fade;
+
+        ParticleSystem.SizeOverLifetimeModule sizeOverLifetime = particles.sizeOverLifetime;
+        sizeOverLifetime.enabled = true;
+        AnimationCurve puff = new AnimationCurve(
+            new Keyframe(0f, 0.55f),
+            new Keyframe(0.25f, 1.05f),
+            new Keyframe(1f, 1.35f));
+        sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, puff);
+
+        ParticleSystem.RotationOverLifetimeModule spin = particles.rotationOverLifetime;
+        spin.enabled = true;
+        spin.z = new ParticleSystem.MinMaxCurve(-40f, 40f);
+
+        ParticleSystem.InheritVelocityModule inherit = particles.inheritVelocity;
+        inherit.enabled = true;
+        inherit.mode = ParticleSystemInheritVelocityMode.Initial;
+        inherit.curve = new ParticleSystem.MinMaxCurve(0.9f);
+
+        renderer.renderMode = ParticleSystemRenderMode.Billboard;
+        renderer.sharedMaterial = dirtMaterial;
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        renderer.minParticleSize = 0.01f;
+        renderer.maxParticleSize = 0.4f;
+    }
+
+    static Texture2D CreateDirtClodTexture(int size)
+    {
+        size = Mathf.Max(16, size);
+        Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        texture.name = "DirtClod";
+        texture.wrapMode = TextureWrapMode.Clamp;
+        texture.filterMode = FilterMode.Bilinear;
+
+        float half = (size - 1) * 0.5f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = (x - half) / half;
+                float dy = (y - half) / half;
+                float lump = 0.22f * Mathf.Sin(dx * 5.2f + dy * 2.1f)
+                    + 0.16f * Mathf.Sin(dx * 11.4f - dy * 8.6f)
+                    + 0.08f * Mathf.Sin(dx * 17.3f + dy * 13.1f);
+                float distance = Mathf.Sqrt(dx * dx + dy * dy) - lump;
+                float t = Mathf.Clamp01(1f - distance * 1.15f);
+                t = t * t * (3f - 2f * t);
+                float alpha = Mathf.Pow(t, 2.1f);
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+            }
+        }
+
+        texture.Apply(false, true);
+        return texture;
+    }
+
+    void UpdateDirtTrails()
+    {
+        if (dirtTrails == null || dirtTrails.Length == 0)
+        {
+            return;
+        }
+
+        float slowCap = maxSpeed * Mathf.Min(loweredSpeedFactor, raisedSpeedFactor);
+        float fastCap = maxSpeed * Mathf.Max(loweredSpeedFactor, raisedSpeedFactor);
+        float speed = DriveVelocity.magnitude;
+        float forward = Vector3.Dot(DriveVelocity, transform.forward);
+        float blend = Mathf.InverseLerp(slowCap, Mathf.Max(slowCap + 0.5f, fastCap), speed);
+        bool fastEnough = forward > 1.5f && blend > (dirtSpraying ? 0.02f : 0.12f);
+        dirtSpraying = fastEnough;
+
+        float rate = dirtSpraying ? Mathf.Lerp(18f, 46f, blend) : 0f;
+        float throwSpeed = Mathf.Lerp(2.8f, 7.4f, blend);
+        for (int i = 0; i < dirtTrails.Length; i++)
+        {
+            ParticleSystem particles = dirtTrails[i];
+            if (particles == null)
+            {
+                continue;
+            }
+
+            ParticleSystem.EmissionModule emission = particles.emission;
+            emission.rateOverTime = rate;
+            ParticleSystem.MainModule main = particles.main;
+            main.startSpeed = new ParticleSystem.MinMaxCurve(throwSpeed * 0.62f, throwSpeed);
+
+            if (dirtSpraying)
+            {
+                if (!particles.isPlaying)
+                {
+                    particles.Play(true);
+                }
+            }
+            else if (particles.isPlaying)
+            {
+                particles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+            }
+        }
+    }
+
+    void StopDirtTrails()
+    {
+        dirtSpraying = false;
+        if (dirtTrails == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < dirtTrails.Length; i++)
+        {
+            ParticleSystem particles = dirtTrails[i];
+            if (particles == null || !particles.isPlaying)
+            {
+                continue;
+            }
+
+            particles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+        }
+    }
+
     void Update()
     {
         if (!ExperienceRestart.IsActive)
         {
             SetHeadlightOn(false);
             StopStunClouds();
+            StopDirtTrails();
             SoundManager.UpdateMotor(0f);
             StepDetachedArm();
             return;
@@ -712,6 +989,7 @@ public class CarController : MonoBehaviour
         UpdateArm();
         UpdateHeadlight();
         SpinWheels();
+        UpdateDirtTrails();
         SoundManager.UpdateMotor(DriveVelocity.magnitude);
     }
 

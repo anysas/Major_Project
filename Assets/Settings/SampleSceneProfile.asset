@@ -164,7 +164,7 @@ MonoBehaviour:
     m_Value: 0
   PixelResolution:
     m_OverrideState: 1
-    m_Value: {x: 680.96, y: 326.1}
+    m_Value: {x: 687.28, y: 747}
   EnableColorPrecision:
     m_OverrideState: 1
     m_Value: 0
@@ -179,7 +179,7 @@ MonoBehaviour:
     m_Value: 1
   DitherPattern:
     m_OverrideState: 1
-    m_Value: 1
+    m_Value: 2
   DitherDisplayMode:
     m_OverrideState: 1
     m_Value: 2
@@ -191,7 +191,7 @@ MonoBehaviour:
     m_Value: 0
   DitherThreshold:
     m_OverrideState: 1
-    m_Value: 0.494
+    m_Value: 0.59
   EnableColorPalette:
     m_OverrideState: 1
     m_Value: 0
