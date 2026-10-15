@@ -68,7 +68,7 @@ MonoBehaviour:
     m_Value: {x: 0.5, y: 0.5}
   intensity:
     m_OverrideState: 1
-    m_Value: 0.2
+    m_Value: 0.271
   smoothness:
     m_OverrideState: 0
     m_Value: 0.2
@@ -155,7 +155,7 @@ MonoBehaviour:
     m_Value: 1
   AmbientColor:
     m_OverrideState: 0
-    m_Value: {r: 0.8301887, g: 0, b: 0, a: 1}
+    m_Value: {r: 0.1792453, g: 0.08708616, b: 0.08708616, a: 1}
   EnablePixelation:
     m_OverrideState: 1
     m_Value: 1
@@ -164,7 +164,7 @@ MonoBehaviour:
     m_Value: 0
   PixelResolution:
     m_OverrideState: 1
-    m_Value: {x: 687.28, y: 747}
+    m_Value: {x: 681.14, y: 687.5}
   EnableColorPrecision:
     m_OverrideState: 1
     m_Value: 0
@@ -206,28 +206,28 @@ MonoBehaviour:
     m_Value: {fileID: 0}
   EnableFog:
     m_OverrideState: 1
-    m_Value: 0
+    m_Value: 1
   IgnoreSkybox:
     m_OverrideState: 1
     m_Value: 0
   FogColor:
     m_OverrideState: 1
-    m_Value: {r: 0, g: 0, b: 0, a: 1}
+    m_Value: {r: 0.7924528, g: 0.5789235, b: 0.36258456, a: 1}
   FogDensity:
     m_OverrideState: 1
-    m_Value: 1
+    m_Value: 0.003
   FogNoiseStrength:
     m_OverrideState: 1
-    m_Value: 0.1
+    m_Value: 0.395
   FogEdgeSmoothness:
     m_OverrideState: 1
-    m_Value: 0.5
+    m_Value: 0.01
   FogNoiseScale:
     m_OverrideState: 1
-    m_Value: 0.5
+    m_Value: 0.426
   FogNoiseStart:
     m_OverrideState: 1
-    m_Value: 0.7
+    m_Value: 0.009
 --- !u!114 &6100000000000000002
 MonoBehaviour:
   m_ObjectHideFlags: 3
@@ -342,10 +342,10 @@ MonoBehaviour:
     m_Value: 15
   EnableSignalInterference:
     m_OverrideState: 1
-    m_Value: 0
+    m_Value: 1
   InterferenceFrequency:
     m_OverrideState: 1
-    m_Value: 70
+    m_Value: 43.2
   InterferenceAmplitude:
     m_OverrideState: 1
     m_Value: 0.25
@@ -396,28 +396,28 @@ MonoBehaviour:
     m_Value: 0
   Gamma:
     m_OverrideState: 1
-    m_Value: 0.374
+    m_Value: 0.517
   Brightness:
     m_OverrideState: 1
-    m_Value: 0.5
+    m_Value: 0.522
   Contrast:
     m_OverrideState: 1
-    m_Value: 0.5
+    m_Value: 0.573
   Saturation:
     m_OverrideState: 1
     m_Value: 0.5
   Hue:
     m_OverrideState: 1
-    m_Value: 0
+    m_Value: 0.049
   RedShift:
     m_OverrideState: 1
-    m_Value: 0
+    m_Value: 0.161
   BlueShift:
     m_OverrideState: 1
     m_Value: 0
   GreenShift:
     m_OverrideState: 1
-    m_Value: 0
+    m_Value: 0.098
   IsMonochrome:
     m_OverrideState: 1
     m_Value: 0

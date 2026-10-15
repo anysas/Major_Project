@@ -1,14 +1,14 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
 using UnityEngine.SceneManagement;
 
 public static class GameInput
 {
     static Xboxcontroller instance;
 
-    // Xbox latches the arm and headlights. Keyboard latches headlights and holds the arm.
-    // Arduino switches stay on only while held.
-    static bool armLatched;
+    // Xbox holds the right trigger for the arm and toggles headlights with B.
+    // Keyboard holds the arm and toggles headlights. Arduino switches stay on only while held.
     static bool headlightLatched;
 
     public static Xboxcontroller Actions
@@ -27,7 +27,6 @@ public static class GameInput
         Unhook();
         instance?.Dispose();
         instance = null;
-        armLatched = false;
         headlightLatched = false;
     }
 
@@ -68,7 +67,7 @@ public static class GameInput
     }
 
     public static bool ArmUpHeld =>
-        ArduinoController.ArmUpHeld || KeyboardHeld(Actions.Truck.ArmUp) || armLatched;
+        ArduinoController.ArmUpHeld || ActionHeld(Actions.Truck.ArmUp);
 
     public static bool HeadlightHeld => ArduinoController.HeadlightHeld || headlightLatched;
 
@@ -76,17 +75,13 @@ public static class GameInput
         ActionPressedThisFrame(Actions.Truck.Horn) || ArduinoController.HornPressedThisFrame;
 
     public static bool ConfirmPressedThisFrame =>
-        ActionPressedThisFrame(Actions.Truck.Confirm) || ArduinoController.ConfirmPressedThisFrame;
+        ActionPressedThisFrame(Actions.Truck.Confirm) ||
+        ArduinoController.ConfirmPressedThisFrame ||
+        GamepadPressedThisFrame();
 
     static void Hook()
     {
-        InputAction arm = instance.Truck.ArmUp;
         InputAction headlight = instance.Truck.Headlight;
-        if (arm != null)
-        {
-            arm.performed += OnArmPressed;
-        }
-
         if (headlight != null)
         {
             headlight.performed += OnHeadlightPressed;
@@ -100,29 +95,20 @@ public static class GameInput
             return;
         }
 
-        InputAction arm = instance.Truck.ArmUp;
         InputAction headlight = instance.Truck.Headlight;
-        if (arm != null)
-        {
-            arm.performed -= OnArmPressed;
-        }
-
         if (headlight != null)
         {
             headlight.performed -= OnHeadlightPressed;
         }
     }
 
-    static void OnArmPressed(InputAction.CallbackContext context)
-    {
-        if (context.control != null && context.control.device is Gamepad)
-        {
-            armLatched = !armLatched;
-        }
-    }
-
     static void OnHeadlightPressed(InputAction.CallbackContext context)
     {
+        if (!ExperienceRestart.IsActive)
+        {
+            return;
+        }
+
         if (IsKeyboardOrGamepad(context))
         {
             headlightLatched = !headlightLatched;
@@ -137,24 +123,29 @@ public static class GameInput
 
     static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        armLatched = false;
         headlightLatched = false;
     }
 
-    static bool KeyboardHeld(InputAction action)
+    static bool ActionHeld(InputAction action)
     {
-        if (action == null)
-        {
-            return false;
-        }
+        return action != null && action.IsPressed();
+    }
 
-        var controls = action.controls;
-        for (int i = 0; i < controls.Count; i++)
+    static bool GamepadPressedThisFrame()
+    {
+        foreach (Gamepad gamepad in Gamepad.all)
         {
-            InputControl control = controls[i];
-            if (control != null && control.device is Keyboard && control.IsPressed())
+            if (gamepad == null)
             {
-                return true;
+                continue;
+            }
+
+            foreach (InputControl control in gamepad.allControls)
+            {
+                if (control is ButtonControl button && button.wasPressedThisFrame)
+                {
+                    return true;
+                }
             }
         }
 

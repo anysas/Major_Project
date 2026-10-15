@@ -1,3 +1,4 @@
+using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -10,6 +11,8 @@ public class GameTimer : MonoBehaviour
     static GameTimer instance;
 
     Text hudText;
+    TMP_Text hudTmp;
+    GameObject timerRoot;
     Canvas hudCanvas;
     bool running;
 
@@ -70,7 +73,7 @@ public class GameTimer : MonoBehaviour
         instance = this;
         ElapsedSeconds = 0f;
         running = false;
-        BuildHud();
+        BindHud();
         SetHudVisible(false);
     }
 
@@ -114,26 +117,112 @@ public class GameTimer : MonoBehaviour
     {
         running = false;
         RefreshHud();
-        SetHudVisible(false);
+        if (timerRoot == null)
+        {
+            SetHudVisible(false);
+        }
+    }
+
+    public static bool ShowHudOnEndScreen()
+    {
+        GameTimer timer = EnsureExists();
+        if (timer.timerRoot == null)
+        {
+            return false;
+        }
+
+        timer.running = false;
+        timer.RefreshHud();
+        timer.SetHudVisible(true);
+        timer.RaiseAboveEndScreen();
+        return true;
+    }
+
+    void RaiseAboveEndScreen()
+    {
+        Canvas canvas = timerRoot.GetComponent<Canvas>();
+        if (canvas == null)
+        {
+            canvas = timerRoot.AddComponent<Canvas>();
+        }
+
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 120;
     }
 
     void RefreshHud()
     {
+        string time = FormattedTime;
+        if (hudTmp != null)
+        {
+            hudTmp.text = time;
+        }
+
         if (hudText != null)
         {
-            hudText.text = FormattedTime;
+            hudText.text = time;
         }
     }
 
     void SetHudVisible(bool visible)
     {
+        if (timerRoot != null)
+        {
+            if (visible)
+            {
+                ActivateParentCanvas(timerRoot);
+            }
+
+            timerRoot.SetActive(visible);
+            return;
+        }
+
         if (hudCanvas != null)
         {
             hudCanvas.enabled = visible;
         }
     }
 
-    void BuildHud()
+    void BindHud()
+    {
+        GameObject textObject = FindNamed("timer_text");
+        if (textObject != null)
+        {
+            Transform parent = textObject.transform.parent;
+            timerRoot = parent != null && NameIs(parent.name, "timer") ? parent.gameObject : textObject;
+        }
+        else
+        {
+            timerRoot = FindNamed("timer");
+            textObject = timerRoot;
+        }
+
+        if (textObject != null)
+        {
+            hudTmp = textObject.GetComponent<TMP_Text>();
+            if (hudTmp == null)
+            {
+                hudTmp = textObject.GetComponentInChildren<TMP_Text>(true);
+            }
+
+            hudText = textObject.GetComponent<Text>();
+            if (hudText == null && hudTmp == null)
+            {
+                hudText = textObject.GetComponentInChildren<Text>(true);
+            }
+        }
+
+        if (hudTmp != null || hudText != null)
+        {
+            RefreshHud();
+            return;
+        }
+
+        timerRoot = null;
+        BuildFallbackHud();
+    }
+
+    void BuildFallbackHud()
     {
         if (hudCanvas != null)
         {
@@ -187,6 +276,34 @@ public class GameTimer : MonoBehaviour
         shadow.effectDistance = new Vector2(2f, -2f);
 
         return text;
+    }
+
+    static GameObject FindNamed(string exactName)
+    {
+        Transform[] transforms = FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < transforms.Length; i++)
+        {
+            if (transforms[i] != null && NameIs(transforms[i].name, exactName))
+            {
+                return transforms[i].gameObject;
+            }
+        }
+
+        return null;
+    }
+
+    static bool NameIs(string objectName, string exactName)
+    {
+        return string.Equals(objectName, exactName, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    static void ActivateParentCanvas(GameObject uiObject)
+    {
+        Canvas canvas = uiObject.GetComponentInParent<Canvas>(true);
+        if (canvas != null)
+        {
+            canvas.gameObject.SetActive(true);
+        }
     }
 
     public static string Format(float seconds)

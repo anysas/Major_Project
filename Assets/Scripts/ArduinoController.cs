@@ -101,6 +101,8 @@ public class ArduinoController : MonoBehaviour
 
     public static bool HornPressedThisFrame => PressedThisFrame("LEFT") || PressedThisFrame("LEFTARROW");
 
+    public static bool IsDeviceConnected => Instance != null && Instance.IsConnected;
+
     public static bool ConfirmPressedThisFrame =>
         PressedThisFrame("ENTER") || PressedThisFrame("RETURN") || PressedThisFrame("NUMPADENTER");
 

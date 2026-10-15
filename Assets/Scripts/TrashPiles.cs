@@ -18,6 +18,8 @@ public class TrashPiles : MonoBehaviour
     [SerializeField] float extraClearance = 2f;
     [SerializeField, Min(0.1f), Tooltip("Uniform size of spawned trash pieces.")] float trashScale = 1.6f;
     [SerializeField] float pileHeight = 0.8f;
+    [SerializeField, Min(0f), Tooltip("How much higher the pile sits beyond the inner edge. The inner polygon edge stays at Pile Height.")] float sideRaise = 0.75f;
+    [SerializeField, Min(0.2f), Tooltip("How far out from the inner edge the surface climbs from the valley to the raised sides.")] float valleyWidth = 3.5f;
     [SerializeField] float barrierHeight = 8f;
     [SerializeField, Tooltip("Empty space between each block and the polygon inner edge.")] float blockGap = 0.45f;
     [SerializeField, Tooltip("Minimum extra space kept between neighboring blocks.")] float blockSeparation = 0.85f;
@@ -38,7 +40,8 @@ public class TrashPiles : MonoBehaviour
     [SerializeField, Range(0.5f, 1f), Tooltip("Keep starting edges this far inside the camera ground footprint.")] float startViewPadding = 0.98f;
     [SerializeField, Tooltip("Play area used for the opening layout. Falls back to a GameObject named GameSection.")] Transform gameSection;
     [SerializeField, Tooltip("Keep starting edges this far inside GameSection.")] float gameSectionInset = 0.35f;
-    [SerializeField, Range(0.75f, 1f), Tooltip("How fully the opening polygon fills GameSection.")] float gameSectionFill = 0.995f;
+    [SerializeField, Min(0f), Tooltip("Extra gap between the polygon and GameSection. A pushed edge stops in this gap instead of jamming into the section edge.")] float playAreaMargin = 3f;
+    [SerializeField, Range(0.75f, 1f), Tooltip("How fully the opening polygon fills the play area inside GameSection.")] float gameSectionFill = 0.995f;
     [Header("Fail State")]
     [SerializeField, Min(0.5f), Tooltip("Radius of the invisible circle that follows the truck.")] float dangerZoneRadius = 5.5f;
     [SerializeField, Min(1), Tooltip("How many trash objects must stay inside the circle to start the fail timer.")] int failTrashCount = 3;
@@ -52,7 +55,7 @@ public class TrashPiles : MonoBehaviour
     [SerializeField] float crawlSpeedMax = 11.4f;
     [SerializeField, Tooltip("How long a landed block can be pushed before the pile swallows it.")] float pushWindowMin = 2.75f;
     [SerializeField, Tooltip("Longest time a landed block waits for a push.")] float pushWindowMax = 4.25f;
-    [SerializeField, Tooltip("How long before an unpushed piece disappears it starts blinking.")] float expireBlinkSeconds = 1.25f;
+    [SerializeField, Tooltip("How long before an unpushed piece disappears it starts blinking.")] float expireBlinkSeconds = 2f;
     [SerializeField, Tooltip("Fallback recede distance after a swallow, if EventsHandler is missing.")] float finishPush = 4.3f;
     [SerializeField, Tooltip("How quickly a receding edge eases into place. Higher is snappier.")] float edgeRecedeLerp = 6f;
     [SerializeField] float consumeDuration = 0.85f;
@@ -125,6 +128,8 @@ public class TrashPiles : MonoBehaviour
     float[] recedeLeft;
     float[] shoveDepth;
     float[] blockGroundY;
+    Vector3[] edgeMidBefore;
+    Vector3[] edgeOutBefore;
     Quaternion[] blockSpin;
     Vector3[] blockBaseScale;
     bool[] consumeFadeReady;
@@ -151,6 +156,8 @@ public class TrashPiles : MonoBehaviour
     {
         count = Mathf.Max(3, count);
         pileHeight = Mathf.Max(0.05f, pileHeight);
+        sideRaise = Mathf.Max(0f, sideRaise);
+        valleyWidth = Mathf.Max(0.2f, valleyWidth);
         barrierHeight = Mathf.Max(pileHeight, barrierHeight);
         blockGap = Mathf.Max(0.05f, blockGap);
         blockSeparation = Mathf.Max(0.1f, blockSeparation);
@@ -172,6 +179,7 @@ public class TrashPiles : MonoBehaviour
         maxStartDistance = Mathf.Max(4f, maxStartDistance);
         startViewPadding = Mathf.Clamp(startViewPadding, 0.5f, 1f);
         gameSectionInset = Mathf.Max(0f, gameSectionInset);
+        playAreaMargin = Mathf.Max(0f, playAreaMargin);
         gameSectionFill = Mathf.Clamp(gameSectionFill, 0.75f, 1f);
         emptyWallCreepScale = Mathf.Clamp(emptyWallCreepScale, 0.05f, 1f);
         firstFallStagger = Mathf.Max(0f, firstFallStagger);
@@ -214,6 +222,7 @@ public class TrashPiles : MonoBehaviour
 
         ClearPushedFlags();
         PushContactingBlocks();
+        CaptureEdgeFrame();
         ApplyRecede();
         ApplyIdleOrCreep();
         UpdateBlockLife();
@@ -222,6 +231,7 @@ public class TrashPiles : MonoBehaviour
             ApplyShape();
         }
 
+        CarryShovedTrashWithPile();
         ApplyBlockVisuals();
         ContainTruckInPlayArea();
         CheckFailFromDangerZone();
@@ -955,7 +965,7 @@ public class TrashPiles : MonoBehaviour
             return;
         }
 
-        corners[index] += delta;
+        corners[index] = StopAtPlayRadius(corners[index], delta);
         ClampCorner(index);
         vertexMovedThisStep[index] = true;
         idleSeconds[index] = 0f;
@@ -1351,7 +1361,7 @@ public class TrashPiles : MonoBehaviour
 
         PrepareConsumeFade(index);
         float urgency = 1f - Mathf.Clamp01(despawnLeft[index] / warn);
-        float interval = Mathf.Lerp(1.6f, 1.15f, urgency);
+        float interval = Mathf.Lerp(2.8f, 2f, urgency);
         float wave = 0.5f + 0.5f * Mathf.Sin((Time.time / interval + index * 0.17f) * Mathf.PI * 2f);
         SetBlockOpacity(index, Mathf.Lerp(0.18f, 1f, wave));
     }
@@ -1427,6 +1437,59 @@ public class TrashPiles : MonoBehaviour
         ApplyBlockTransform(index, pos, BlockSpin(index));
     }
 
+    void CaptureEdgeFrame()
+    {
+        if (edgeMidBefore == null || edgeOutBefore == null || corners == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            edgeMidBefore[i] = EdgeMid(i);
+            edgeOutBefore[i] = EdgeOutward(i);
+        }
+    }
+
+    void CarryShovedTrashWithPile()
+    {
+        if (blockLife == null || crawlPos == null || edgeMidBefore == null || edgeOutBefore == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            if (blockLife[i] != BlockLife.Shoving)
+            {
+                continue;
+            }
+
+            Vector3 oldOut = edgeOutBefore[i];
+            oldOut.y = 0f;
+            if (oldOut.sqrMagnitude < 0.0001f)
+            {
+                oldOut = EdgeOutward(i);
+            }
+            else
+            {
+                oldOut.Normalize();
+            }
+
+            Vector3 newOut = EdgeOutward(i);
+            Vector3 oldTangent = new Vector3(-oldOut.z, 0f, oldOut.x);
+            Vector3 newTangent = new Vector3(-newOut.z, 0f, newOut.x);
+            Vector3 rel = crawlPos[i] - edgeMidBefore[i];
+            rel.y = 0f;
+            float along = Vector3.Dot(rel, oldOut);
+            float side = Vector3.Dot(rel, oldTangent);
+            Vector3 pos = EdgeMid(i) + newOut * along + newTangent * side;
+            pos.y = blockGroundY != null ? blockGroundY[i] : crawlPos[i].y;
+            crawlPos[i] = pos;
+            RefreshShoveDepth(i);
+        }
+    }
+
     void CheckSwallow(int index)
     {
         if (blockLife[index] != BlockLife.Shoving)
@@ -1487,9 +1550,16 @@ public class TrashPiles : MonoBehaviour
         }
 
         Vector3 target = CrawlLip(index);
-        crawlPos[index] = Vector3.MoveTowards(crawlPos[index], target, crawlSpeed[index] * dt);
+        Vector3 flatPos = crawlPos[index];
+        Vector3 flatTarget = target;
+        flatPos.y = 0f;
+        flatTarget.y = 0f;
+        Vector3 next = Vector3.MoveTowards(flatPos, flatTarget, crawlSpeed[index] * dt);
+        bool arrived = (flatTarget - next).sqrMagnitude <= 0.0004f;
+        next.y = PileSurfaceY(RadialExcess(next));
+        crawlPos[index] = next;
         ApplyBlockTransform(index, crawlPos[index], BlockSpin(index));
-        if ((crawlPos[index] - target).sqrMagnitude <= 0.0004f)
+        if (arrived)
         {
             crawlPos[index] = target;
             BeginFall(index);
@@ -1819,7 +1889,7 @@ public class TrashPiles : MonoBehaviour
             return;
         }
 
-        corners[index] += delta;
+        corners[index] = StopAtPlayRadius(corners[index], delta);
         ClampCorner(index);
         vertexMovedThisStep[index] = true;
         idleSeconds[index] = 0f;
@@ -1855,14 +1925,15 @@ public class TrashPiles : MonoBehaviour
         float farDist = OuterAlong(dir).magnitude;
         float dist = Mathf.Max(farDist - 0.35f, lipDist + 3f);
         Vector3 outer = center + dir * dist;
-        outer.y = PileTopY();
         float head = openingHeadStart != null ? openingHeadStart[index] : 0f;
         if (openingHeadStart != null)
         {
             openingHeadStart[index] = 0f;
         }
 
-        return Vector3.Lerp(outer, lip, Mathf.Clamp01(head));
+        Vector3 pos = Vector3.Lerp(outer, lip, Mathf.Clamp01(head));
+        pos.y = PileSurfaceY(RadialExcess(pos));
+        return pos;
     }
 
     float WallDistance(int index)
@@ -1915,13 +1986,88 @@ public class TrashPiles : MonoBehaviour
     Vector3 CrawlLip(int index)
     {
         Vector3 lip = EdgeMid(index) + EdgeOutward(index) * cubeExtent;
-        lip.y = PileTopY();
+        lip.y = PileSurfaceY(RadialExcess(lip));
         return lip;
     }
 
     float PileTopY()
     {
         return Mathf.Max(0.05f, pileHeight);
+    }
+
+    float PileSurfaceY(float outward)
+    {
+        float lip = PileTopY();
+        float raise = Mathf.Max(0f, sideRaise);
+        if (raise <= 0.0001f)
+        {
+            return lip;
+        }
+
+        float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(outward / Mathf.Max(0.2f, valleyWidth)));
+        return lip + raise * t;
+    }
+
+    float RadialExcess(Vector3 worldPos)
+    {
+        Vector3 flat = worldPos - center;
+        flat.y = 0f;
+        float dist = flat.magnitude;
+        if (dist < 0.0001f || corners == null)
+        {
+            return 0f;
+        }
+
+        float boundary = RayPolygonRadius(flat / dist);
+        if (float.IsPositiveInfinity(boundary))
+        {
+            return Mathf.Max(0f, dist);
+        }
+
+        return dist - boundary;
+    }
+
+    float RayPolygonRadius(Vector3 dir)
+    {
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < count; i++)
+        {
+            Vector3 a = corners[i] - center;
+            Vector3 b = corners[Wrap(i + 1)] - center;
+            a.y = 0f;
+            b.y = 0f;
+            if (!TryRaySegment(dir, a, b, out float t))
+            {
+                continue;
+            }
+
+            if (t > 0.01f && t < best)
+            {
+                best = t;
+            }
+        }
+
+        return best;
+    }
+
+    static bool TryRaySegment(Vector3 dir, Vector3 a, Vector3 b, out float t)
+    {
+        Vector3 ab = b - a;
+        float denom = CrossY(dir, ab);
+        t = 0f;
+        if (Mathf.Abs(denom) < 0.0000001f)
+        {
+            return false;
+        }
+
+        t = CrossY(a, ab) / denom;
+        float u = CrossY(a, dir) / denom;
+        return t > 0f && u >= 0f && u <= 1f;
+    }
+
+    static float CrossY(Vector3 p, Vector3 q)
+    {
+        return p.x * q.z - p.z * q.x;
     }
 
     void ApplyBlockTransform(int index, Vector3 pos, Quaternion rotation)
@@ -2144,6 +2290,8 @@ public class TrashPiles : MonoBehaviour
         recedeLeft = new float[count];
         shoveDepth = new float[count];
         blockGroundY = new float[count];
+        edgeMidBefore = new Vector3[count];
+        edgeOutBefore = new Vector3[count];
         blockSpin = new Quaternion[count];
         blockBaseScale = new Vector3[count];
         consumeFadeReady = new bool[count];
@@ -3126,64 +3274,38 @@ public class TrashPiles : MonoBehaviour
         uvs.Clear();
         tris.Clear();
 
-        float top = Mathf.Max(0.05f, pileHeight);
+        float lip = PileTopY();
         float bottom = 0.02f;
-        int n = count;
+        float width = ValleyBandWidth();
+        const int valleySteps = 4;
         const int outerCount = 48;
+        int n = count;
 
         for (int i = 0; i < n; i++)
         {
             int next = Wrap(i + 1);
             Vector3 innerA = VertexOffset(i);
             Vector3 innerB = VertexOffset(next);
-            Vector3 dirA = FlatDir(innerA);
-            Vector3 dirB = FlatDir(innerB);
-            Vector3 outerA = dirA * coverRadius;
-            Vector3 outerB = dirB * coverRadius;
-
-            float angleA = Mathf.Atan2(dirA.z, dirA.x);
-            float angleB = Mathf.Atan2(dirB.z, dirB.x);
-            float span = RepeatTwoPi(angleB - angleA);
-
-            sectorOuter.Clear();
-            for (int k = 0; k < outerCount; k++)
+            Vector3 prevA = innerA;
+            Vector3 prevB = innerB;
+            for (int step = 1; step <= valleySteps; step++)
             {
-                float ang = (Mathf.PI * 2f * k) / outerCount;
-                float t = RepeatTwoPi(ang - angleA);
-                if (t <= 0.0001f || t >= span - 0.0001f)
-                {
-                    continue;
-                }
-
-                Vector3 point = new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang)) * coverRadius;
-                int insertAt = sectorOuter.Count;
-                for (int s = 0; s < sectorOuter.Count; s++)
-                {
-                    float existing = RepeatTwoPi(Mathf.Atan2(sectorOuter[s].z, sectorOuter[s].x) - angleA);
-                    if (t < existing)
-                    {
-                        insertAt = s;
-                        break;
-                    }
-                }
-
-                sectorOuter.Insert(insertAt, point);
+                float d0 = width * (step - 1) / valleySteps;
+                float d1 = width * step / valleySteps;
+                Vector3 curA = OffsetOut(innerA, d1);
+                Vector3 curB = OffsetOut(innerB, d1);
+                Vector3 a0 = WithY(prevA, PileSurfaceY(d0));
+                Vector3 b0 = WithY(prevB, PileSurfaceY(d0));
+                Vector3 a1 = WithY(curA, PileSurfaceY(d1));
+                Vector3 b1 = WithY(curB, PileSurfaceY(d1));
+                AddTopTri(a0, b1, a1);
+                AddTopTri(a0, b0, b1);
+                prevA = curA;
+                prevB = curB;
             }
 
-            Vector3 innerATop = innerA + Vector3.up * top;
-            Vector3 innerBTop = innerB + Vector3.up * top;
-            Vector3 prevOuterTop = outerA + Vector3.up * top;
-            for (int s = 0; s < sectorOuter.Count; s++)
-            {
-                Vector3 outerTop = sectorOuter[s] + Vector3.up * top;
-                AddTopTri(innerATop, outerTop, prevOuterTop);
-                prevOuterTop = outerTop;
-            }
-
-            Vector3 outerBTop = outerB + Vector3.up * top;
-            AddTopTri(innerATop, outerBTop, prevOuterTop);
-            AddTopTri(innerATop, innerBTop, outerBTop);
-            AddWall(innerA + Vector3.up * bottom, innerB + Vector3.up * bottom, innerBTop, innerATop);
+            FanPlateau(prevA, prevB, PileSurfaceY(width), outerCount);
+            AddWall(WithY(innerA, bottom), WithY(innerB, bottom), WithY(innerB, lip), WithY(innerA, lip));
         }
 
         pileMesh.Clear();
@@ -3192,6 +3314,83 @@ public class TrashPiles : MonoBehaviour
         pileMesh.SetTriangles(tris, 0);
         pileMesh.RecalculateNormals();
         pileMesh.RecalculateBounds();
+    }
+
+    float ValleyBandWidth()
+    {
+        float width = Mathf.Max(0.2f, valleyWidth);
+        if (corners == null)
+        {
+            return width;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            float room = coverRadius - VertexOffset(i).magnitude - 1.5f;
+            width = Mathf.Min(width, Mathf.Max(0.2f, room));
+        }
+
+        return width;
+    }
+
+    static Vector3 OffsetOut(Vector3 innerOffset, float outward)
+    {
+        return innerOffset + FlatDir(innerOffset) * outward;
+    }
+
+    static Vector3 WithY(Vector3 point, float y)
+    {
+        point.y = y;
+        return point;
+    }
+
+    void FanPlateau(Vector3 innerA, Vector3 innerB, float height, int outerCount)
+    {
+        Vector3 dirA = FlatDir(innerA);
+        Vector3 dirB = FlatDir(innerB);
+        Vector3 outerA = dirA * coverRadius;
+        Vector3 outerB = dirB * coverRadius;
+        float angleA = Mathf.Atan2(dirA.z, dirA.x);
+        float angleB = Mathf.Atan2(dirB.z, dirB.x);
+        float span = RepeatTwoPi(angleB - angleA);
+
+        sectorOuter.Clear();
+        for (int k = 0; k < outerCount; k++)
+        {
+            float ang = (Mathf.PI * 2f * k) / outerCount;
+            float t = RepeatTwoPi(ang - angleA);
+            if (t <= 0.0001f || t >= span - 0.0001f)
+            {
+                continue;
+            }
+
+            Vector3 point = new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang)) * coverRadius;
+            int insertAt = sectorOuter.Count;
+            for (int s = 0; s < sectorOuter.Count; s++)
+            {
+                float existing = RepeatTwoPi(Mathf.Atan2(sectorOuter[s].z, sectorOuter[s].x) - angleA);
+                if (t < existing)
+                {
+                    insertAt = s;
+                    break;
+                }
+            }
+
+            sectorOuter.Insert(insertAt, point);
+        }
+
+        Vector3 innerATop = WithY(innerA, height);
+        Vector3 prevOuterTop = WithY(outerA, height);
+        for (int s = 0; s < sectorOuter.Count; s++)
+        {
+            Vector3 outerTop = WithY(sectorOuter[s], height);
+            AddTopTri(innerATop, outerTop, prevOuterTop);
+            prevOuterTop = outerTop;
+        }
+
+        Vector3 outerBTop = WithY(outerB, height);
+        AddTopTri(innerATop, outerBTop, prevOuterTop);
+        AddTopTri(innerATop, WithY(innerB, height), outerBTop);
     }
 
     void AddTopTri(Vector3 a, Vector3 b, Vector3 c)
@@ -3689,6 +3888,27 @@ public class TrashPiles : MonoBehaviour
 
     float MaxRadius(Vector3 dir)
     {
+        dir.y = 0f;
+        if (dir.sqrMagnitude < 0.0001f)
+        {
+            dir = Vector3.forward;
+        }
+        else
+        {
+            dir.Normalize();
+        }
+
+        // A flat section edge is much closer than its corners. Sampling a small
+        // fan keeps a vertex from popping outward just by rotating toward a corner.
+        const float window = 12f * Mathf.Deg2Rad;
+        float cap = RadiusCap(dir);
+        cap = Mathf.Min(cap, RadiusCap(RotateFlat(dir, window)));
+        cap = Mathf.Min(cap, RadiusCap(RotateFlat(dir, -window)));
+        return cap;
+    }
+
+    float RadiusCap(Vector3 dir)
+    {
         float floorLimit = OuterAlong(dir).magnitude - 0.75f;
         float cap = Mathf.Min(Mathf.Max(minRadius + 0.1f, floorLimit), maxPushDistance);
         float decorative = DecorativePileRadius(dir);
@@ -3704,6 +3924,58 @@ public class TrashPiles : MonoBehaviour
         }
 
         return cap;
+    }
+
+    Vector3 StopAtPlayRadius(Vector3 from, Vector3 delta)
+    {
+        Vector3 start = from;
+        start.y = 0f;
+        Vector3 target = start + delta;
+        target.y = 0f;
+        if (WithinPlayRadius(target))
+        {
+            target.y = from.y;
+            return target;
+        }
+
+        float lo = 0f;
+        float hi = 1f;
+        for (int i = 0; i < 10; i++)
+        {
+            float mid = (lo + hi) * 0.5f;
+            if (WithinPlayRadius(Vector3.Lerp(start, target, mid)))
+            {
+                lo = mid;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+
+        Vector3 stopped = Vector3.Lerp(start, target, lo);
+        stopped.y = from.y;
+        return stopped;
+    }
+
+    bool WithinPlayRadius(Vector3 world)
+    {
+        Vector3 offset = world - center;
+        offset.y = 0f;
+        float dist = offset.magnitude;
+        if (dist <= minRadius + 0.001f)
+        {
+            return true;
+        }
+
+        return dist <= MaxRadius(offset) + 0.02f;
+    }
+
+    static Vector3 RotateFlat(Vector3 dir, float radians)
+    {
+        float cos = Mathf.Cos(radians);
+        float sin = Mathf.Sin(radians);
+        return new Vector3(dir.x * cos - dir.z * sin, 0f, dir.x * sin + dir.z * cos);
     }
 
     void CacheDecorativePileRing()
@@ -3899,7 +4171,8 @@ public class TrashPiles : MonoBehaviour
 
     float GameSectionRadius(Vector3 dir)
     {
-        return RadiusToRing(gameSectionRing, dir, gameSectionInset, maxPushDistance);
+        float inset = Mathf.Max(0f, gameSectionInset) + Mathf.Max(0f, playAreaMargin);
+        return RadiusToRing(gameSectionRing, dir, inset, maxPushDistance);
     }
 
     float GameSectionStartDistance(Vector3 dir)

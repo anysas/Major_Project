@@ -19,6 +19,7 @@ public class CarController : MonoBehaviour
     [SerializeField] float headlightRange = 48f;
     [SerializeField] float headlightAngle = 64f;
     [SerializeField] float headlightIntensity = 2800f;
+    [SerializeField, Tooltip("Pulls the beam back toward the truck so the light meets the body.")] float headlightInset = 1.5f;
     [SerializeField] float stunCloudHeight = 0.2f;
     [SerializeField] Color stunCloudColor = new Color(0.96f, 0.98f, 1f, 0.72f);
 
@@ -274,6 +275,7 @@ public class CarController : MonoBehaviour
         }
 
         Vector3 origin = headlightLamp != null ? headlightLamp.position : transform.position + transform.forward * 1.2f + Vector3.up * 1.1f;
+        origin -= transform.forward * Mathf.Max(0f, headlightInset);
         Vector3 aim = transform.forward;
         aim.y = -0.06f;
         if (aim.sqrMagnitude < 0.0001f)

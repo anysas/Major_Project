@@ -19,6 +19,7 @@ public class HealthHearts : MonoBehaviour
 
     Image[] hearts;
     float[] shown;
+    GameObject healthRoot;
     Canvas hudCanvas;
     Sprite heartSprite;
     Texture2D heartTexture;
@@ -82,7 +83,7 @@ public class HealthHearts : MonoBehaviour
     void Awake()
     {
         instance = this;
-        if (hearts == null)
+        if (hearts == null && !BindSceneHearts())
         {
             BuildHud();
         }
@@ -127,8 +128,9 @@ public class HealthHearts : MonoBehaviour
             float target = i < Lives ? 1f : 0f;
             shown[i] = Mathf.MoveTowards(shown[i], target, step);
             float fill = shown[i];
-            Color lost = new Color(0.28f, 0.28f, 0.28f, 0.22f);
-            hearts[i].color = Color.Lerp(lost, Color.white, fill);
+            Color color = hearts[i].color;
+            color.a = fill;
+            hearts[i].color = color;
 
             float scale = 1f;
             if (i >= Lives && fill > 0.02f && fill < 0.98f)
@@ -157,10 +159,102 @@ public class HealthHearts : MonoBehaviour
 
     void RefreshVisibility()
     {
+        if (healthRoot != null)
+        {
+            bool show = ExperienceRestart.HasStarted;
+            if (show)
+            {
+                Canvas canvas = healthRoot.GetComponentInParent<Canvas>(true);
+                if (canvas != null)
+                {
+                    canvas.gameObject.SetActive(true);
+                }
+            }
+
+            healthRoot.SetActive(show);
+            return;
+        }
+
         if (hudCanvas != null)
         {
             hudCanvas.enabled = ExperienceRestart.HasStarted;
         }
+    }
+
+    bool BindSceneHearts()
+    {
+        GameObject health = FindNamed("health");
+        Image[] images = health != null
+            ? health.GetComponentsInChildren<Image>(true)
+            : FindObjectsByType<Image>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        if (images == null || images.Length == 0)
+        {
+            return false;
+        }
+
+        Image[] scoops = new Image[images.Length];
+        int count = 0;
+        for (int i = 0; i < images.Length; i++)
+        {
+            Image image = images[i];
+            if (image != null && image.gameObject.name.StartsWith("scoop", System.StringComparison.OrdinalIgnoreCase))
+            {
+                scoops[count] = image;
+                count++;
+            }
+        }
+
+        if (count == 0)
+        {
+            return false;
+        }
+
+        for (int i = 1; i < count; i++)
+        {
+            Image current = scoops[i];
+            float x = ScoopX(current);
+            int j = i - 1;
+            while (j >= 0 && ScoopX(scoops[j]) > x)
+            {
+                scoops[j + 1] = scoops[j];
+                j--;
+            }
+
+            scoops[j + 1] = current;
+        }
+
+        int used = Mathf.Min(count, MaxLives);
+        hearts = new Image[used];
+        shown = new float[used];
+        for (int i = 0; i < used; i++)
+        {
+            hearts[i] = scoops[i];
+            hearts[i].raycastTarget = false;
+            shown[i] = 1f;
+        }
+
+        healthRoot = health != null ? health : hearts[0].transform.parent.gameObject;
+        return true;
+    }
+
+    static float ScoopX(Image image)
+    {
+        RectTransform rect = image.rectTransform;
+        return rect != null ? rect.anchoredPosition.x : image.transform.position.x;
+    }
+
+    static GameObject FindNamed(string exactName)
+    {
+        Transform[] transforms = FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < transforms.Length; i++)
+        {
+            if (transforms[i] != null && string.Equals(transforms[i].name, exactName, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return transforms[i].gameObject;
+            }
+        }
+
+        return null;
     }
 
     void BuildHud()
